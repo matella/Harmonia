@@ -1,19 +1,31 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { IonIcon } from '@ionic/angular';
 
-import type { Occurrence } from '../../core/domain/milestone-occurrence';
-import { CATEGORY_ICONS } from '../icons';
+import type { OccurrenceStatus } from '../../core/domain/milestone-occurrence';
+import type { Temporal } from '../../core/domain/temporal';
 import { I18N_PIPES } from '../pipes/i18n.pipes';
 
-/** Home's single card: the next date, its weekday and how far away it is. */
+/** What Home's card shows: one of the user's dates or a together milestone. */
+export interface NextMoment {
+  link: string[];
+  icon: string;
+  title: string;
+  date: Temporal.PlainDate;
+  status: OccurrenceStatus;
+  daysFromToday: number;
+  /** Secondary line, e.g. "Marks 3 years" or "Counted from your start date". */
+  detail: string | null;
+}
+
+/** Home's single card: the next moment, its weekday and how far away it is. */
 @Component({
   selector: 'hm-next-milestone-card',
   imports: [RouterLink, IonIcon, ...I18N_PIPES],
   template: `
-    @let o = occurrence();
-    <a class="card" [class.card--today]="o.status === 'today'" [routerLink]="['/milestone', o.milestone.id]">
-      <span class="icon" aria-hidden="true"><ion-icon [name]="icon()" /></span>
+    @let o = moment();
+    <a class="card" [class.card--today]="o.status === 'today'" [routerLink]="o.link">
+      <span class="icon" aria-hidden="true"><ion-icon [name]="o.icon" /></span>
       <span class="body">
         <span class="when">
           @if (o.status === 'today') {
@@ -22,10 +34,10 @@ import { I18N_PIPES } from '../pipes/i18n.pipes';
             <span class="days hm-num">{{ o.daysFromToday | relativeDays }}</span>
           }
         </span>
-        <span class="title">{{ o.milestone.title }}</span>
+        <span class="title">{{ o.title }}</span>
         <span class="date">{{ o.date | hmDate: 'full' }}</span>
-        @if (o.milestone.recurrence === 'yearly' && o.occurrenceNumber > 0) {
-          <span class="years">{{ 'occurrence.yearsSince' | tp: o.occurrenceNumber }}</span>
+        @if (o.detail) {
+          <span class="years">{{ o.detail }}</span>
         }
       </span>
       <ion-icon class="chevron" name="chevron-forward" aria-hidden="true" />
@@ -101,6 +113,5 @@ import { I18N_PIPES } from '../pipes/i18n.pipes';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NextMilestoneCardComponent {
-  readonly occurrence = input.required<Occurrence>();
-  protected readonly icon = computed(() => CATEGORY_ICONS[this.occurrence().milestone.category]);
+  readonly moment = input.required<NextMoment>();
 }

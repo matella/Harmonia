@@ -1,8 +1,9 @@
-import type { MessageCatalog } from './translator';
+import type { CatalogShape, MessageCatalog } from './translator';
 
 /**
- * English (baseline) catalog. Keep whole sentences per key; add French/Dutch catalogs
- * with the same keys later. Plural messages follow CLDR categories.
+ * English (baseline) catalog. Keep whole sentences per key. French and Dutch catalogs
+ * (messages.fr.ts, messages.nl.ts) must contain exactly the same keys and placeholders.
+ * Plural messages follow CLDR categories.
  */
 export const EN = {
   // Brand
@@ -59,6 +60,12 @@ export const EN = {
   'notification.named.today': '{title} is today.',
   'notification.named.tomorrow': '{title} is tomorrow.',
   'notification.named.inDays': { one: '{title} is in {count} day.', other: '{title} is in {count} days.' },
+  'notification.together.today': 'Today you’ve been together for {duration}.',
+  'notification.together.tomorrow': 'Tomorrow you’ll have been together for {duration}.',
+  'notification.together.inDays': {
+    one: 'In {count} day, you’ll have been together for {duration}.',
+    other: 'In {count} days, you’ll have been together for {duration}.',
+  },
   'notification.channelName': 'Reminders',
   'notification.channelDescription': 'Reminders for the dates you choose',
 
@@ -159,6 +166,14 @@ export const EN = {
   'counterDetail.dayZero': 'Today is day one.',
   'counterDetail.showAsDefault': 'Show on Home',
   'counterDetail.isDefault': 'Shown on Home',
+
+  // Together milestones (derived from the start date)
+  'together.title': '{duration} together',
+  'together.fromStart': 'Counted from your start date',
+  'together.comingUp': 'Milestones together',
+  'together.comingUpHint': '1, 3 and 6 months, 100 days and more, counted from the day your story began.',
+  'together.none': 'Milestones together are turned off.',
+  'together.choose': 'Choose milestones',
 
   // Milestone categories
   'category.met': 'We met',
@@ -309,7 +324,7 @@ export const EN = {
   'settings.profile': 'Relationship profile',
   'settings.profileHint': 'Start date, name and photo',
   'settings.appearance': 'Appearance',
-  'settings.appearanceHint': 'Theme, accent and counter',
+  'settings.appearanceHint': 'Theme, language, counter and milestones',
   'settings.reminders': 'Reminders',
   'settings.remindersHint': 'Default time and recovery',
   'settings.widgets': 'Widgets and watch',
@@ -347,6 +362,22 @@ export const EN = {
   'appearance.leapHint': 'In years without 29 February, yearly dates on that day are celebrated on:',
   'appearance.leap.feb28': '28 February',
   'appearance.leap.mar1': '1 March',
+  'appearance.together': 'Milestones together',
+  'appearance.togetherHint': 'Moments counted from your start date appear on Home, in Dates and on widgets.',
+  'appearance.together.off': 'Don’t show',
+  'appearance.together.key': 'Key months',
+  'appearance.together.keyHint': '1, 3, 6 and 9 months, then every half year',
+  'appearance.together.every': 'Every month',
+  'appearance.together.everyHint': 'Each month you’ve been together',
+  'appearance.togetherDays': 'Day counts',
+  'appearance.togetherDaysHint': '100, 200, 300 and 500 days, then every 500 days',
+  'appearance.language': 'Language',
+  'appearance.language.system': 'Match the device',
+  // Language names are written in their own language in every catalog.
+  'language.en': 'English',
+  'language.fr': 'Français',
+  'language.nl': 'Nederlands',
+  'appearance.languageHint': 'Harmonia restarts to apply a new language. Widgets and the watch follow the device language.',
 
   // Reminder settings
   'reminders.title': 'Reminders',
@@ -360,6 +391,8 @@ export const EN = {
   'reminders.revealTitles': 'Show date titles in notifications',
   'reminders.revealTitlesHint':
     'Off by default, so notifications stay discreet on a lock screen. Applies to reminders you set up from now on.',
+  'reminders.together': 'Remind me of milestones together',
+  'reminders.togetherHint': 'Uses your default time and reminders. Wording stays discreet unless date titles are shown.',
   'reminders.permission': 'Notifications',
   'reminders.permission.granted': 'Allowed for Harmonia.',
   'reminders.permission.denied':
@@ -446,4 +479,5 @@ export const EN = {
   loading: 'Opening Harmonia…',
 } as const satisfies MessageCatalog;
 
-export type EnCatalog = typeof EN;
+/** Widened catalog type shared by every language. */
+export type EnCatalog = CatalogShape<typeof EN>;

@@ -3,6 +3,8 @@ import { Router, RouterLink } from '@angular/router';
 import { ActionSheetController, IonContent, IonHeader, IonIcon, IonToolbar } from '@ionic/angular';
 
 import { originalOccurrence, type Occurrence } from '../../core/domain/milestone-occurrence';
+import { togetherMarkComesFirst } from '../../core/domain/together-milestones';
+import { formatTogetherTitle } from '../../core/i18n/duration-format';
 import type { CounterFormat } from '../../core/domain/models';
 import { I18nService } from '../../core/services/i18n.service';
 import { SettingsService } from '../../core/services/settings.service';
@@ -11,7 +13,8 @@ import { CounterComponent } from '../../shared/components/counter.component';
 import { EmblemComponent } from '../../shared/components/emblem.component';
 import { EmptyStateComponent } from '../../shared/components/empty-state.component';
 import { MilestoneRowComponent } from '../../shared/components/milestone-row.component';
-import { NextMilestoneCardComponent } from '../../shared/components/next-milestone-card.component';
+import { NextMilestoneCardComponent, type NextMoment } from '../../shared/components/next-milestone-card.component';
+import { CATEGORY_ICONS, TOGETHER_ICON } from '../../shared/icons';
 import { PhotoFrameComponent } from '../../shared/components/photo-frame.component';
 import { I18N_PIPES } from '../../shared/pipes/i18n.pipes';
 import { ReminderService } from '../../core/services/reminder.service';
@@ -50,7 +53,36 @@ export class HomePage {
 
   protected readonly profile = this.store.profile;
   protected readonly format = computed(() => this.store.settings().counterFormat);
-  protected readonly next = this.store.nextUpcoming;
+  /** The sooner of the next date and the next together milestone; a date wins a tie. */
+  protected readonly next = computed<NextMoment | null>(() => {
+    const occurrence = this.store.nextUpcoming();
+    const mark = this.store.nextTogether();
+    if (mark && togetherMarkComesFirst(mark, occurrence?.date ?? null)) {
+      return {
+        link: ['/counter'],
+        icon: TOGETHER_ICON,
+        title: formatTogetherTitle(this.t, mark),
+        date: mark.date,
+        status: mark.status,
+        daysFromToday: mark.daysFromToday,
+        detail: this.t.t('together.fromStart'),
+      };
+    }
+    if (!occurrence) return null;
+    const m = occurrence.milestone;
+    return {
+      link: ['/milestone', m.id],
+      icon: CATEGORY_ICONS[m.category],
+      title: m.title,
+      date: occurrence.date,
+      status: occurrence.status,
+      daysFromToday: occurrence.daysFromToday,
+      detail:
+        m.recurrence === 'yearly' && occurrence.occurrenceNumber > 0
+          ? this.t.plural('occurrence.yearsSince', occurrence.occurrenceNumber)
+          : null,
+    };
+  });
 
   /** Pinned dates first, then the most recent past dates — at most two. */
   protected readonly story = computed<Occurrence[]>(() => {

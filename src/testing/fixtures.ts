@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 import type { Milestone, RelationshipProfile, ReminderRule } from '../app/core/domain/models';
 import { DEFAULT_SETTINGS, type AppSettings } from '../app/core/domain/models';
-import { EN } from '../app/core/i18n/messages.en';
+import { EN, type EnCatalog } from '../app/core/i18n/messages.en';
 import { Translator } from '../app/core/i18n/translator';
 
 export interface DateVectors {
@@ -32,7 +32,7 @@ export function loadDateVectors(): DateVectors {
   return JSON.parse(readFileSync(path, 'utf-8')) as DateVectors;
 }
 
-export const translator = new Translator(EN, 'en');
+export const translator = new Translator<EnCatalog>(EN, 'en');
 
 const STAMP = '2026-01-01T00:00:00Z';
 

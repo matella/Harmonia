@@ -1,0 +1,50 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- French (draft — review by a native speaker before release). -->
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Widgets -->
+    <string name="widget_small_name">Jours ensemble</string>
+    <string name="widget_small_description">Votre nombre de jours et le logo Harmonia.</string>
+    <string name="widget_medium_name">Ensemble et prochaine date</string>
+    <string name="widget_medium_description">Votre compteur et la prochaine date qui compte.</string>
+    <string name="widget_placeholder">Ouvrez Harmonia pour commencer</string>
+    <string name="widget_with_name">Vous et %1$s</string>
+    <string name="widget_today">Aujourd’hui</string>
+    <string name="widget_next_untitled">Prochaine date</string>
+    <string name="widget_years_months">%1$s, %2$s</string>
+    <!-- Label beside a number drawn separately; French "one" (0 and 1) is correct here. -->
+    <plurals name="widget_days_label" tools:ignore="ImpliedQuantity">
+        <item quantity="one">jour</item>
+        <item quantity="many">jours</item>
+        <item quantity="other">jours</item>
+    </plurals>
+    <plurals name="widget_days_together">
+        <item quantity="one">%1$s jour ensemble</item>
+        <item quantity="many">%1$s jours ensemble</item>
+        <item quantity="other">%1$s jours ensemble</item>
+    </plurals>
+    <plurals name="widget_in_days">
+        <item quantity="one">dans %1$s jour</item>
+        <item quantity="many">dans %1$s jours</item>
+        <item quantity="other">dans %1$s jours</item>
+    </plurals>
+    <plurals name="widget_years">
+        <item quantity="one">%d an</item>
+        <item quantity="many">%d ans</item>
+        <item quantity="other">%d ans</item>
+    </plurals>
+    <plurals name="widget_months">
+        <item quantity="one">%d mois</item>
+        <item quantity="many">%d mois</item>
+        <item quantity="other">%d mois</item>
+    </plurals>
+
+    <!-- Widget configuration -->
+    <string name="config_title">Options du widget</string>
+    <string name="config_counter">Compteur</string>
+    <string name="config_counter_app">Utiliser le réglage de l’app</string>
+    <string name="config_counter_days">Nombre de jours</string>
+    <string name="config_counter_calendar">Années et mois</string>
+    <string name="config_details">Afficher le prénom et la prochaine date</string>
+    <string name="config_details_hint">Affichés seulement si la confidentialité des widgets d’Harmonia est réglée sur Tout.</string>
+    <string name="config_save">Enregistrer</string>
+</resources>

@@ -12,6 +12,7 @@ import {
   type ReminderRule,
 } from '../domain/models';
 import { computeRelationshipCounter } from '../domain/relationship-duration';
+import { togetherOptionsFrom, upcomingTogetherMarks, type TogetherMark } from '../domain/together-milestones';
 import type { Temporal } from '../domain/temporal';
 import { CLOCK } from '../services/tokens';
 
@@ -61,6 +62,15 @@ export class AppStore {
   readonly upcoming = computed(() => sortedUpcoming(this.milestones(), this.today(), this.settings().leapDayPolicy));
   readonly past = computed(() => sortedPast(this.milestones(), this.today()));
   readonly nextUpcoming = computed(() => this.upcoming()[0] ?? null);
+
+  /** Next "together" milestones (1, 3, 6 months…, 100 days…) derived from the start date. */
+  readonly upcomingTogether = computed<TogetherMark[]>(() => {
+    const profile = this.profile();
+    if (!profile) return [];
+    const options = togetherOptionsFrom(this.settings(), this.milestones(), profile.startDate);
+    return upcomingTogetherMarks(profile.startDate, this.today(), options, 4);
+  });
+  readonly nextTogether = computed(() => this.upcomingTogether()[0] ?? null);
 
   readonly rulesByMilestone = computed(() => {
     const map = new Map<string, ReminderRule[]>();

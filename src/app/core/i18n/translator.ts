@@ -24,6 +24,11 @@ export type PluralKeys<C extends MessageCatalog> = {
 
 export type Params = Record<string, string | number>;
 
+/** The shape every translation must match: same keys, strings stay strings, plurals stay plurals. */
+export type CatalogShape<C extends MessageCatalog> = {
+  readonly [K in keyof C]: C[K] extends string ? string : PluralMessage;
+};
+
 export type DateStyle = 'full' | 'long' | 'medium' | 'monthDay' | 'monthYear' | 'year' | 'weekdayDay';
 
 const DATE_OPTIONS: Record<DateStyle, Intl.DateTimeFormatOptions> = {
@@ -42,18 +47,32 @@ const DATE_OPTIONS: Record<DateStyle, Intl.DateTimeFormatOptions> = {
  * translations can reorder words freely.
  */
 export class Translator<C extends MessageCatalog> {
-  private readonly pluralRules: Intl.PluralRules;
-  private readonly numberFormat: Intl.NumberFormat;
+  private catalog!: C;
+  private currentLocale!: string;
+  private pluralRules!: Intl.PluralRules;
+  private numberFormat!: Intl.NumberFormat;
   private readonly dateFormats = new Map<DateStyle, Intl.DateTimeFormat>();
-  private readonly timeFormat: Intl.DateTimeFormat;
+  private timeFormat!: Intl.DateTimeFormat;
 
-  constructor(
-    private readonly catalog: C,
-    readonly locale: string,
-  ) {
+  constructor(catalog: C, locale: string) {
+    this.use(catalog, locale);
+  }
+
+  get locale(): string {
+    return this.currentLocale;
+  }
+
+  /**
+   * Switches catalog and formatting locale in place, so every holder of this instance
+   * follows. Done once at startup, before anything renders (a language change reloads).
+   */
+  use(catalog: C, locale: string): void {
+    this.catalog = catalog;
+    this.currentLocale = locale;
     this.pluralRules = new Intl.PluralRules(locale);
     this.numberFormat = new Intl.NumberFormat(locale);
     this.timeFormat = new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
+    this.dateFormats.clear();
   }
 
   t(key: StringKeys<C>, params?: Params): string {

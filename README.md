@@ -11,6 +11,7 @@
 | Part | Technology |
 |---|---|
 | App | Angular 22 (standalone, zoneless, signals) · Ionic 9 · Capacitor 8 · TypeScript 6.0 strict |
+| Languages | English, French, Dutch (FR/NL drafts pending native-speaker review); follows the device or an in-app choice |
 | Dates | Temporal (`temporal-polyfill`), shared JSON test vectors |
 | Storage | SQLite — `@capacitor-community/sqlite` on devices, `sql.js` in the browser preview and tests |
 | Reminders | `@capacitor/local-notifications` (inexact, local only) |

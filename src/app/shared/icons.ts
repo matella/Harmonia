@@ -22,6 +22,7 @@ import {
   gridOutline,
   heartOutline,
   homeOutline,
+  hourglassOutline,
   imageOutline,
   imagesOutline,
   informationCircleOutline,
@@ -75,6 +76,7 @@ export function registerIcons(): void {
     'grid-outline': gridOutline,
     'heart-outline': heartOutline,
     'home-outline': homeOutline,
+    'hourglass-outline': hourglassOutline,
     'image-outline': imageOutline,
     'images-outline': imagesOutline,
     'information-circle-outline': informationCircleOutline,
@@ -99,6 +101,9 @@ export function registerIcons(): void {
     'wine-outline': wineOutline,
   });
 }
+
+/** Icon for milestones together (derived from the start date). */
+export const TOGETHER_ICON = 'hourglass-outline';
 
 export const CATEGORY_ICONS: Record<MilestoneCategory, string> = {
   met: 'people-outline',

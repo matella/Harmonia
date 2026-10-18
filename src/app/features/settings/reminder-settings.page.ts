@@ -49,6 +49,13 @@ import { SettingsHeaderComponent } from './settings-header.component';
               (ionChange)="save({ notificationsRevealTitles: $event.detail.checked })"
             />
           </div>
+          <div class="hm-switch-row">
+            <label class="hm-switch-row__text" for="r-together">
+              {{ 'reminders.together' | t }}
+              <span class="hm-switch-row__hint">{{ 'reminders.togetherHint' | t }}</span>
+            </label>
+            <ion-toggle id="r-together" [checked]="settings().togetherReminders" (ionChange)="setTogether($event.detail.checked)" />
+          </div>
         </section>
 
         <section class="hm-section">
@@ -129,6 +136,12 @@ export class ReminderSettingsPage implements OnInit {
 
   ngOnInit(): void {
     void this.reminders.refreshPermission().catch(() => undefined);
+  }
+
+  /** Asks for notification permission in context, the first time one is turned on. */
+  protected async setTogether(enabled: boolean): Promise<void> {
+    if (enabled) await this.reminders.requestIfNeeded().catch(() => undefined);
+    await this.save({ togetherReminders: enabled });
   }
 
   protected async save(changes: Parameters<SettingsService['update']>[0]): Promise<void> {

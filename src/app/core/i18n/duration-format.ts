@@ -1,4 +1,5 @@
 import type { CalendarDuration, PreciseDuration } from '../domain/relationship-duration';
+import type { TogetherMark } from '../domain/together-milestones';
 import type { EnCatalog } from './messages.en';
 import type { Translator } from './translator';
 
@@ -72,4 +73,15 @@ export function formatRelativeDays(t: AppTranslator, daysFromToday: number): str
   return daysFromToday > 0
     ? t.plural('relative.inDays', daysFromToday)
     : t.plural('relative.daysAgo', -daysFromToday);
+}
+
+/** "6 months", "1 year and 6 months", "1,000 days" — the length of a together milestone. */
+export function formatTogetherDuration(t: AppTranslator, mark: TogetherMark): string {
+  if (mark.kind === 'days') return t.plural('phrase.days', mark.count);
+  return formatCalendarDuration(t, { years: Math.floor(mark.count / 12), months: mark.count % 12, days: 0 });
+}
+
+/** "6 months together". */
+export function formatTogetherTitle(t: AppTranslator, mark: TogetherMark): string {
+  return t.t('together.title', { duration: formatTogetherDuration(t, mark) });
 }

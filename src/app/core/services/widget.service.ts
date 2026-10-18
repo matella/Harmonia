@@ -1,8 +1,10 @@
 import { Injectable, inject } from '@angular/core';
 
 import { buildWidgetSnapshot, emptyWidgetSnapshot, snapshotFingerprint, type WidgetSnapshot } from '../domain/widget-snapshot';
+import { formatTogetherTitle } from '../i18n/duration-format';
 import { HarmoniaWidgets } from '../platform/widget-bridge';
 import { AppStore } from '../state/app-store';
+import { I18nService } from './i18n.service';
 import { CLOCK } from './tokens';
 
 /**
@@ -14,6 +16,7 @@ import { CLOCK } from './tokens';
 export class WidgetService {
   private readonly store = inject(AppStore);
   private readonly clock = inject(CLOCK);
+  private readonly t = inject(I18nService).translator;
   private lastFingerprint: string | null = null;
 
   current(): WidgetSnapshot {
@@ -22,6 +25,7 @@ export class WidgetService {
       milestones: this.store.milestones(),
       settings: this.store.settings(),
       clock: this.clock,
+      togetherTitle: (mark) => formatTogetherTitle(this.t, mark),
     });
   }
 

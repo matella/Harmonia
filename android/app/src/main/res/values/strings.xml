@@ -1,9 +1,9 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Harmonia</string>
-    <string name="title_activity_main">Harmonia</string>
-    <string name="package_name">harmonia.companion</string>
-    <string name="custom_url_scheme">harmonia</string>
+    <string name="app_name" translatable="false">Harmonia</string>
+    <string name="title_activity_main" translatable="false">Harmonia</string>
+    <string name="package_name" translatable="false">harmonia.companion</string>
+    <string name="custom_url_scheme" translatable="false">harmonia</string>
 
     <!-- Widgets -->
     <string name="widget_small_name">Days together</string>

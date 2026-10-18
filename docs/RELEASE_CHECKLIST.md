@@ -29,3 +29,8 @@ Nothing here is complete until checked on real builds. Items marked ✅ were ver
 - [ ] Accessibility pass on devices: TalkBack/VoiceOver order and labels, 200 % font scale, reduced motion, contrast in dark mode.
 - [ ] Locale/time-zone manual checks: change device zone after scheduling a reminder; travel across a DST change.
 - [ ] Airplane-mode smoke test on both platforms.
+
+## Localization
+
+- [ ] Native-speaker review of French and Dutch (app catalogs, Android `values-fr`/`values-nl`, iOS `.xcstrings` and `InfoPlist.xcstrings`).
+- [ ] Store listings and screenshots in English, French and Dutch.

@@ -1,0 +1,44 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- Dutch (draft — review by a native speaker before release). -->
+<resources>
+    <!-- Widgets -->
+    <string name="widget_small_name">Dagen samen</string>
+    <string name="widget_small_description">Jullie aantal dagen en het Harmonia-logo.</string>
+    <string name="widget_medium_name">Samen en volgende datum</string>
+    <string name="widget_medium_description">Jullie teller en de volgende datum die telt.</string>
+    <string name="widget_placeholder">Open Harmonia om te beginnen</string>
+    <string name="widget_with_name">Jij en %1$s</string>
+    <string name="widget_today">Vandaag</string>
+    <string name="widget_next_untitled">Volgende datum</string>
+    <string name="widget_years_months">%1$s, %2$s</string>
+    <plurals name="widget_days_label">
+        <item quantity="one">dag</item>
+        <item quantity="other">dagen</item>
+    </plurals>
+    <plurals name="widget_days_together">
+        <item quantity="one">%1$s dag samen</item>
+        <item quantity="other">%1$s dagen samen</item>
+    </plurals>
+    <plurals name="widget_in_days">
+        <item quantity="one">over %1$s dag</item>
+        <item quantity="other">over %1$s dagen</item>
+    </plurals>
+    <plurals name="widget_years">
+        <item quantity="one">%d jaar</item>
+        <item quantity="other">%d jaar</item>
+    </plurals>
+    <plurals name="widget_months">
+        <item quantity="one">%d maand</item>
+        <item quantity="other">%d maanden</item>
+    </plurals>
+
+    <!-- Widget configuration -->
+    <string name="config_title">Widgetopties</string>
+    <string name="config_counter">Teller</string>
+    <string name="config_counter_app">De app-instelling gebruiken</string>
+    <string name="config_counter_days">Totaal aantal dagen</string>
+    <string name="config_counter_calendar">Jaren en maanden</string>
+    <string name="config_details">Naam en volgende datum tonen</string>
+    <string name="config_details_hint">Alleen getoond als de widgetprivacy van Harmonia op Alles staat.</string>
+    <string name="config_save">Opslaan</string>
+</resources>

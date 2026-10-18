@@ -1,7 +1,15 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { IonContent } from '@ionic/angular';
+import { IonContent, IonToggle } from '@ionic/angular';
 
-import type { AccentPreset, AppSettings, CounterFormat, LeapDayPolicy, ThemePreference } from '../../core/domain/models';
+import type {
+  AccentPreset,
+  AppSettings,
+  CounterFormat,
+  LanguagePreference,
+  LeapDayPolicy,
+  ThemePreference,
+  TogetherMonthsMode,
+} from '../../core/domain/models';
 import { I18nService } from '../../core/services/i18n.service';
 import { NoticeService } from '../../core/services/notice.service';
 import { SettingsService } from '../../core/services/settings.service';
@@ -12,7 +20,7 @@ import { SettingsHeaderComponent } from './settings-header.component';
 
 @Component({
   selector: 'hm-appearance',
-  imports: [IonContent, ChoiceListComponent, SettingsHeaderComponent, ...I18N_PIPES],
+  imports: [IonContent, IonToggle, ChoiceListComponent, SettingsHeaderComponent, ...I18N_PIPES],
   template: `
     <hm-settings-header [title]="'appearance.title' | t" />
     <ion-content>
@@ -46,6 +54,28 @@ import { SettingsHeaderComponent } from './settings-header.component';
             [value]="settings().counterFormat"
             (changed)="save({ counterFormat: $event })"
           />
+        </section>
+        <section class="hm-section" aria-labelledby="together-heading">
+          <h2 id="together-heading" class="hm-section__title">{{ 'appearance.together' | t }}</h2>
+          <p class="hm-section__hint">{{ 'appearance.togetherHint' | t }}</p>
+          <hm-choice-list
+            [label]="'appearance.together' | t"
+            [choices]="togetherMonths()"
+            [value]="settings().togetherMonths"
+            (changed)="save({ togetherMonths: $event })"
+          />
+          <div class="hm-switch-row">
+            <label class="hm-switch-row__text" for="a-together-days">
+              {{ 'appearance.togetherDays' | t }}
+              <span class="hm-switch-row__hint">{{ 'appearance.togetherDaysHint' | t }}</span>
+            </label>
+            <ion-toggle id="a-together-days" [checked]="settings().togetherDays" (ionChange)="save({ togetherDays: $event.detail.checked })" />
+          </div>
+        </section>
+        <section class="hm-section">
+          <h2 class="hm-section__title">{{ 'appearance.language' | t }}</h2>
+          <p class="hm-section__hint">{{ 'appearance.languageHint' | t }}</p>
+          <hm-choice-list [label]="'appearance.language' | t" [choices]="languages()" [value]="settings().language" (changed)="setLanguage($event)" />
         </section>
         <section class="hm-section">
           <h2 class="hm-section__title">{{ 'appearance.leap' | t }}</h2>
@@ -119,6 +149,28 @@ export class AppearancePage {
     { value: 'feb28', label: this.t.t('appearance.leap.feb28') },
     { value: 'mar1', label: this.t.t('appearance.leap.mar1') },
   ]);
+
+  protected readonly togetherMonths = computed<Choice<TogetherMonthsMode>[]>(() => [
+    { value: 'key', label: this.t.t('appearance.together.key'), hint: this.t.t('appearance.together.keyHint') },
+    { value: 'every', label: this.t.t('appearance.together.every'), hint: this.t.t('appearance.together.everyHint') },
+    { value: 'off', label: this.t.t('appearance.together.off') },
+  ]);
+  protected readonly languages = computed<Choice<LanguagePreference>[]>(() => [
+    { value: 'system', label: this.t.t('appearance.language.system') },
+    { value: 'en', label: this.t.t('language.en') },
+    { value: 'fr', label: this.t.t('language.fr') },
+    { value: 'nl', label: this.t.t('language.nl') },
+  ]);
+
+  /** Saves, then restarts the web layer so every screen, reminder and widget uses the new copy. */
+  protected async setLanguage(language: LanguagePreference): Promise<void> {
+    try {
+      await this.service.update({ language });
+      location.reload();
+    } catch {
+      await this.notice.show(this.t.t('settings.saveFailed'), 'warning');
+    }
+  }
 
   protected async save(changes: Partial<AppSettings>): Promise<void> {
     try {

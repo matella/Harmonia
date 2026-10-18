@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 
 import { planReminders, type PlannedNotification } from '../domain/reminder-planner';
 import { reconcileReminders, type ReconcileReport } from '../domain/reminder-reconciler';
+import { togetherOptionsFrom } from '../domain/together-milestones';
 import { createReminderCopy } from '../i18n/reminder-copy';
 import type { NotificationPermission } from '../platform/notification-port';
 import { AppStore } from '../state/app-store';
@@ -44,13 +45,25 @@ export class ReminderService {
   }
 
   plan(): PlannedNotification[] {
+    const settings = this.store.settings();
+    const profile = this.store.profile();
     return planReminders({
       milestones: this.store.milestones(),
       rules: this.store.rules(),
-      settings: this.store.settings(),
+      settings,
       now: this.clock.now(),
       deviceTimeZoneId: this.clock.timeZoneId(),
       copy: this.copy,
+      together:
+        profile && settings.togetherReminders
+          ? {
+              startDate: profile.startDate,
+              options: togetherOptionsFrom(settings, this.store.milestones(), profile.startDate),
+              offsets: settings.defaultReminderOffsets,
+              localTime: settings.defaultReminderTime,
+              revealTitle: settings.notificationsRevealTitles,
+            }
+          : null,
     });
   }
 

@@ -10,6 +10,9 @@ export type WidgetPrivacyMode = 'normal' | 'discreet' | 'minimal';
 export type LeapDayPolicy = 'feb28' | 'mar1';
 export type Recurrence = 'none' | 'yearly';
 export type TimelineOrder = 'oldest' | 'newest';
+/** Which month counts since the start are celebrated as "together" milestones. */
+export type TogetherMonthsMode = 'off' | 'key' | 'every';
+export type LanguagePreference = 'system' | 'en' | 'fr' | 'nl';
 
 export const MILESTONE_CATEGORIES = [
   'met',
@@ -108,6 +111,13 @@ export interface AppSettings {
   widgetCounterMode: 'days' | 'calendar';
   leapDayPolicy: LeapDayPolicy;
   timelineOrder: TimelineOrder;
+  /** Month milestones derived from the start date (1, 3, 6 months…). */
+  togetherMonths: TogetherMonthsMode;
+  /** Day-count milestones derived from the start date (100, 500, 1,000 days…). */
+  togetherDays: boolean;
+  /** Reminders for together milestones, using the default reminder time and offsets. */
+  togetherReminders: boolean;
+  language: LanguagePreference;
 }
 
 export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
@@ -122,6 +132,10 @@ export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   widgetCounterMode: 'days',
   leapDayPolicy: 'feb28',
   timelineOrder: 'oldest',
+  togetherMonths: 'key',
+  togetherDays: true,
+  togetherReminders: false,
+  language: 'system',
 });
 
 /** Offsets offered as one-tap choices; any whole number 0–365 is accepted. */

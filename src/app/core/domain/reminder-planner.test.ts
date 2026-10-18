@@ -4,7 +4,13 @@ import { FakeNotificationPort } from '../../../testing/fake-notification-port';
 import { makeMilestone, makeRule, settings, translator } from '../../../testing/fixtures';
 import { createReminderCopy } from '../i18n/reminder-copy';
 import type { Milestone, ReminderRule } from './models';
-import { MAX_PENDING_NOTIFICATIONS, planReminders } from './reminder-planner';
+import {
+  MAX_PENDING_NOTIFICATIONS,
+  planReminders,
+  TOGETHER_NOTIFICATION_ID_BASE,
+  togetherNotificationId,
+} from './reminder-planner';
+import { MAX_TOGETHER_DAYS } from './together-milestones';
 import { reconcileReminders } from './reminder-reconciler';
 import { Temporal } from './temporal';
 
@@ -178,5 +184,66 @@ describe('reconcileReminders', () => {
     const report = await reconcileReminders(port, p);
     expect(report.missing).toBe(1);
     expect(port.pending.size).toBe(1);
+  });
+});
+
+describe('together-milestone reminders', () => {
+  const together = (revealTitle: boolean) => ({
+    startDate: '2024-06-14',
+    options: { months: 'key', days: true, skipWholeYears: false } as const,
+    offsets: [1, 0],
+    localTime: '09:00',
+    revealTitle,
+  });
+  const run = (revealTitle: boolean, now = '2026-10-18T10:00:00Z') =>
+    planReminders({
+      milestones: [],
+      rules: [],
+      settings: settings(),
+      now: Temporal.Instant.from(now),
+      deviceTimeZoneId: 'Europe/Brussels',
+      copy,
+      together: together(revealTitle),
+    });
+
+  it('plans nothing unless together reminders are passed in', () => {
+    expect(plan([], [], '2026-10-18T10:00:00Z')).toEqual([]);
+  });
+
+  it('schedules the next month and day milestone for each default offset', () => {
+    const result = run(false);
+    expect(result.map((n) => `${n.ruleId}@${n.fireAt.toString()}`)).toEqual([
+      'together:months:30:1@2026-12-13T08:00:00Z',
+      'together:months:30:0@2026-12-14T08:00:00Z',
+      'together:days:1000:1@2027-03-10T08:00:00Z',
+      'together:days:1000:0@2027-03-11T08:00:00Z',
+    ]);
+    expect(result.every((n) => n.route === '/counter' && n.milestoneId === null)).toBe(true);
+    expect(result.every((n) => n.notificationId >= TOGETHER_NOTIFICATION_ID_BASE)).toBe(true);
+    expect(new Set(result.map((n) => n.notificationId)).size).toBe(4);
+  });
+
+  it('stays discreet unless titles may be shown', () => {
+    expect(run(false)[0].body).toBe('A special date is tomorrow.');
+    expect(run(true)[0].body).toBe('Tomorrow you’ll have been together for 2 years, 6 months.');
+    expect(run(true)[3].body).toBe('Today you’ve been together for 1,000 days.');
+  });
+
+  it('is idempotent and moves on once a milestone has passed', () => {
+    expect(run(false).map((n) => n.notificationId)).toEqual(run(false).map((n) => n.notificationId));
+    const later = run(false, '2026-12-14T09:00:00Z');
+    expect(later.map((n) => n.ruleId)).toEqual([
+      'together:days:1000:1',
+      'together:days:1000:0',
+      'together:months:36:1',
+      'together:months:36:0',
+    ]);
+  });
+
+  it('derives IDs inside the reserved 32-bit range', () => {
+    expect(togetherNotificationId('months', 1, 0)).toBeGreaterThanOrEqual(TOGETHER_NOTIFICATION_ID_BASE);
+    expect(togetherNotificationId('days', MAX_TOGETHER_DAYS, 365)).toBeLessThan(2 ** 31);
+    expect(togetherNotificationId('months', 6, 1)).not.toBe(togetherNotificationId('days', 6, 1));
+    expect(() => togetherNotificationId('days', MAX_TOGETHER_DAYS + 1, 0)).toThrow(RangeError);
   });
 });

@@ -25,7 +25,7 @@ flowchart TD
 | Layer | Location | Rules |
 |---|---|---|
 | Domain | `src/app/core/domain` | Framework-free TypeScript. Dates via Temporal (`temporal.ts`), "now" via injected `Clock`. Duration, occurrence, validation, reminder planning/reconciliation, widget snapshot, export format. 100 % unit-tested in Node. |
-| i18n | `src/app/core/i18n` | Typed message catalog (`messages.en.ts`), CLDR plural selection, `Intl` date/number/list formatting. No Angular. |
+| i18n | `src/app/core/i18n` | Typed catalogs (`messages.en.ts`, `.fr.ts`, `.nl.ts` — same keys and placeholders, checked by `catalogs.test.ts`), CLDR plural selection, `Intl` date/number/list formatting. No Angular. |
 | Persistence | `src/app/core/persistence` | `SqlDriver` interface, two drivers, append-only transactional migrations, one repository per aggregate. Tested against real SQLite (sql.js). |
 | Platform | `src/app/core/platform` | Interfaces + adapters for notifications, the widget bridge, photo picking/storage. Web fallbacks are no-ops or browser equivalents. |
 | Services | `src/app/core/services` | Angular injectables that orchestrate: persist → reload store → side effects. |
@@ -46,6 +46,10 @@ A failure in step 2 or 3 never rolls back the saved data; the user gets a toast 
 
 **Lifecycle.** `LifecycleService` refreshes `now` at minute boundaries while foregrounded only, and on resume reconciles reminders and the snapshot and asks widgets to reload if the day or time zone changed. The counter-detail screen ticks per second only while visible. No background polling exists.
 
+**Language.** `I18nService` holds one `Translator` and switches it in place: first to the device language (so the loading and startup-error screens match), then in `BootstrapService` to the saved `language` setting before anything renders. The formatting locale is the language plus the device region (`fr-BE`, `nl-NL`, `en-GB`…). Changing the language saves and reloads the web layer, which also re-plans reminder wording and rewrites the widget snapshot. Android 13+ per-app language (`locales_config.xml`) and iOS `CFBundleLocalizations` make the WebView report the language, so "Match the device" works on both.
+
+**Milestones together.** `AppStore.upcomingTogether` derives the next marks (see DATE_AND_TIME_RULES.md). Home's card shows whichever comes first, the next user date or the next mark; Dates lists the next mark among upcoming dates; the counter detail lists the next four. They are read-only and link to `/counter`.
+
 **Deep links.** Widgets/complications open `harmonia://home` / `harmonia://dates`; notifications carry an in-app route. `routeForLink()` accepts only known shapes.
 
 ## Notifications
@@ -53,7 +57,8 @@ A failure in step 2 or 3 never rolls back the saved data; the user gets a toast 
 - Planned in the domain from persisted rules; each rule owns a monotonic 32-bit `notification_id` (`id_sequences` table) that survives edits of time/wording, so rescheduling replaces rather than duplicates.
 - Only the next occurrence per rule is scheduled, capped at 60 (iOS limit 64); later ones are planned on the next launch/resume.
 - Android: inexact alarms (`isExactNotification: false`; the plugin's `SCHEDULE_EXACT_ALARM` permission is removed from the merged manifest). The plugin restores alarms after reboot; the app also reconciles on start.
-- Permission is requested only when the user saves a date with reminders enabled; denial is shown in-line and never re-prompted.
+- Permission is requested only when the user saves a date with reminders enabled (or turns on reminders for milestones together); denial is shown in-line and never re-prompted.
+- Reminders for milestones together are off by default. They use the default time and offsets, schedule the next month mark and the next day mark per offset, and take IDs from a reserved range (`TOGETHER_NOTIFICATION_ID_BASE` = 2,000,000,000 + kind/count/offset); the ID sequence refuses to issue IDs in that range.
 
 ## Widgets and watches
 

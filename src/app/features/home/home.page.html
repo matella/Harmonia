@@ -42,8 +42,8 @@
             <a class="hm-link-button" routerLink="/tabs/dates">{{ 'home.viewAll' | t }}</a>
           }
         </div>
-        @if (next(); as occurrence) {
-          <hm-next-milestone-card [occurrence]="occurrence" />
+        @if (next(); as moment) {
+          <hm-next-milestone-card [moment]="moment" />
         } @else {
           <div class="hm-card">
             <hm-empty-state

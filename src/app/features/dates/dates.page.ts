@@ -12,15 +12,24 @@ import {
   IonToolbar,
 } from '@ionic/angular';
 
+import type { Occurrence } from '../../core/domain/milestone-occurrence';
+import { togetherMarkComesFirst, type TogetherMark } from '../../core/domain/together-milestones';
 import { I18nService } from '../../core/services/i18n.service';
 import { ReminderService } from '../../core/services/reminder.service';
 import { AppStore } from '../../core/state/app-store';
 import { EmptyStateComponent } from '../../shared/components/empty-state.component';
 import { MilestoneRowComponent } from '../../shared/components/milestone-row.component';
+import { TogetherRowComponent } from '../../shared/components/together-row.component';
 import { I18N_PIPES } from '../../shared/pipes/i18n.pipes';
 import { reminderStateFor } from '../../shared/utilities/reminder-state';
 
 type Filter = 'all' | 'upcoming' | 'past' | 'annual';
+
+interface UpcomingItem {
+  key: string;
+  occurrence: Occurrence | null;
+  together: TogetherMark | null;
+}
 
 @Component({
   selector: 'hm-dates',
@@ -36,6 +45,7 @@ type Filter = 'all' | 'upcoming' | 'past' | 'annual';
     IonSegmentButton,
     EmptyStateComponent,
     MilestoneRowComponent,
+    TogetherRowComponent,
     ...I18N_PIPES,
   ],
   template: `
@@ -52,6 +62,14 @@ type Filter = 'all' | 'upcoming' | 'past' | 'annual';
     <ion-content>
       <div class="hm-page">
         @if (store.milestones().length === 0) {
+          @if (store.nextTogether(); as mark) {
+            <section class="hm-section first" aria-labelledby="upcoming-heading">
+              <h2 id="upcoming-heading" class="hm-section__title">{{ 'dates.upcoming' | t }}</h2>
+              <ul class="hm-rows">
+                <li><hm-together-row [mark]="mark" /></li>
+              </ul>
+            </section>
+          }
           <hm-empty-state
             icon="calendar-outline"
             [title]="'dates.emptyTitle' | t"
@@ -76,10 +94,14 @@ type Filter = 'all' | 'upcoming' | 'past' | 'annual';
               <h2 id="upcoming-heading" class="hm-section__title">
                 {{ (filter() === 'annual' ? 'dates.annual' : 'dates.upcoming') | t }}
               </h2>
-              @if (upcoming().length > 0) {
+              @if (upcomingItems().length > 0) {
                 <ul class="hm-rows">
-                  @for (o of upcoming(); track o.milestone.id) {
-                    <li><hm-milestone-row [occurrence]="o" [reminderState]="reminderState(o.milestone.id)" /></li>
+                  @for (item of upcomingItems(); track item.key) {
+                    @if (item.together; as mark) {
+                      <li><hm-together-row [mark]="mark" /></li>
+                    } @else if (item.occurrence; as o) {
+                      <li><hm-milestone-row [occurrence]="o" [reminderState]="reminderState(o.milestone.id)" /></li>
+                    }
                   }
                 </ul>
               } @else {
@@ -138,6 +160,17 @@ export class DatesPage {
   protected readonly upcoming = computed(() => {
     const list = this.store.upcoming();
     return this.filter() === 'annual' ? list.filter((o) => o.milestone.recurrence === 'yearly') : list;
+  });
+
+  /** The user's dates plus the next milestone together, in date order (a date wins a tie). */
+  protected readonly upcomingItems = computed<UpcomingItem[]>(() => {
+    const items: UpcomingItem[] = this.upcoming().map((o) => ({ key: o.milestone.id, occurrence: o, together: null }));
+    const mark = this.filter() === 'annual' ? null : this.store.nextTogether();
+    if (mark) {
+      const index = items.findIndex((i) => i.occurrence !== null && togetherMarkComesFirst(mark, i.occurrence.date));
+      items.splice(index === -1 ? items.length : index, 0, { key: `together-${mark.kind}-${mark.count}`, occurrence: null, together: mark });
+    }
+    return items;
   });
 
   protected reminderState(milestoneId: string) {

@@ -13,7 +13,7 @@ Harmonia is a private, offline-first relationship companion (Ionic Angular + Cap
 - Persistence goes through `SqlDriver` + repositories (`core/persistence`). Schema changes = a new append-only migration in `migrations.ts`.
 - Platform APIs (Capacitor plugins, native bridges) live in `core/platform` behind interfaces with web/no-op fallbacks.
 - Angular state uses signals (`core/state/app-store.ts`); the app is zoneless. Components are standalone + OnPush.
-- All user-visible text goes in `core/i18n/messages.en.ts` (whole sentences, plural objects). No string concatenation of sentence fragments.
+- All user-visible text goes in the catalogs: add every new key to `messages.en.ts`, `messages.fr.ts` and `messages.nl.ts` with the same placeholders (`catalogs.test.ts` enforces it). Whole sentences, plural objects; no string concatenation of sentence fragments. Native widget/watch text lives in Android `values{,-fr,-nl}/strings.xml` and the iOS `.xcstrings` catalogs.
 - Persist first, then side effects (reminder reconcile, widget snapshot). A failed side effect must not roll back saved data.
 - Privacy: no analytics/network calls; never log names, dates, notes or notification bodies; widget snapshots contain only the documented fields (`docs/WIDGET_SNAPSHOT.md`).
 
@@ -28,5 +28,5 @@ Bun is the package manager (`bun install`, `bun.lock`); do not add `package-lock
 
 ## Conventions
 - Prettier (`.prettierrc`: print width 100, single quotes). Component selector prefix `hm-`.
-- Tests: `*.test.ts` = framework-free (vitest, `vitest.config.ts`); `*.spec.ts` = Angular (`ng test`).
+- Tests: `*.test.ts` = framework-free (vitest, `vitest.config.mts`); `*.spec.ts` = Angular (`ng test`).
 - Do not add a backend, accounts, analytics, ads or remote fonts.

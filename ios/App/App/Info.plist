@@ -6,6 +6,13 @@
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
+	<!-- Lets the WebView report French/Dutch as navigator.language on those devices. -->
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>fr</string>
+		<string>nl</string>
+	</array>
 	<key>CFBundleDisplayName</key>
         <string>Harmonia</string>
 	<key>CFBundleExecutable</key>

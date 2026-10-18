@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, computed, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { IonBackButton, IonButtons, IonContent, IonHeader, IonTitle, IonToolbar } from '@ionic/angular';
 
 import { fixedClock } from '../../core/domain/clock';
@@ -14,6 +15,7 @@ import { SettingsService } from '../../core/services/settings.service';
 import { CLOCK } from '../../core/services/tokens';
 import { AppStore } from '../../core/state/app-store';
 import { CounterComponent } from '../../shared/components/counter.component';
+import { TogetherRowComponent } from '../../shared/components/together-row.component';
 import { I18N_PIPES } from '../../shared/pipes/i18n.pipes';
 
 /**
@@ -23,7 +25,18 @@ import { I18N_PIPES } from '../../shared/pipes/i18n.pipes';
  */
 @Component({
   selector: 'hm-counter-detail',
-  imports: [IonHeader, IonToolbar, IonButtons, IonBackButton, IonTitle, IonContent, CounterComponent, ...I18N_PIPES],
+  imports: [
+    RouterLink,
+    IonHeader,
+    IonToolbar,
+    IonButtons,
+    IonBackButton,
+    IonTitle,
+    IonContent,
+    CounterComponent,
+    TogetherRowComponent,
+    ...I18N_PIPES,
+  ],
   template: `
     <ion-header class="ion-no-border">
       <ion-toolbar>
@@ -69,6 +82,23 @@ import { I18N_PIPES } from '../../shared/pipes/i18n.pipes';
               }
             </div>
           </dl>
+
+          <section class="hm-section" aria-labelledby="together-heading">
+            <div class="hm-section__head">
+              <h2 id="together-heading" class="hm-section__title">{{ 'together.comingUp' | t }}</h2>
+              <a class="hm-link-button" routerLink="/settings/appearance">{{ 'together.choose' | t }}</a>
+            </div>
+            @if (store.upcomingTogether().length > 0) {
+              <p class="hm-section__hint">{{ 'together.comingUpHint' | t }}</p>
+              <ul class="hm-rows">
+                @for (m of store.upcomingTogether(); track m.kind + m.count) {
+                  <li><hm-together-row [mark]="m" [showOrigin]="false" /></li>
+                }
+              </ul>
+            } @else {
+              <p class="hm-section__hint">{{ 'together.none' | t }}</p>
+            }
+          </section>
         }
       </div>
     </ion-content>

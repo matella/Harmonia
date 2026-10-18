@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- French (draft — review by a native speaker before release). -->
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="complication_label">Jours ensemble</string>
+    <string name="complication_days_label">jours</string>
+    <string name="watch_placeholder">Ouvrez Harmonia sur votre téléphone pour commencer.</string>
+    <string name="open_on_phone">Ouvrir sur le téléphone</string>
+    <string name="today">aujourd’hui</string>
+    <string name="next_untitled">Prochaine date</string>
+    <string name="next_line">%1$s, %2$s</string>
+    <string name="preview_duration">1 an</string>
+    <!-- Label beside a number drawn separately; French "one" (0 and 1) is correct here. -->
+    <plurals name="days_label" tools:ignore="ImpliedQuantity">
+        <item quantity="one">jour</item>
+        <item quantity="many">jours</item>
+        <item quantity="other">jours</item>
+    </plurals>
+    <plurals name="days_together">
+        <item quantity="one">%1$s jour ensemble</item>
+        <item quantity="many">%1$s jours ensemble</item>
+        <item quantity="other">%1$s jours ensemble</item>
+    </plurals>
+    <plurals name="years">
+        <item quantity="one">%d an</item>
+        <item quantity="many">%d ans</item>
+        <item quantity="other">%d ans</item>
+    </plurals>
+    <plurals name="months">
+        <item quantity="one">%d mois</item>
+        <item quantity="many">%d mois</item>
+        <item quantity="other">%d mois</item>
+    </plurals>
+    <plurals name="days">
+        <item quantity="one">%d jour</item>
+        <item quantity="many">%d jours</item>
+        <item quantity="other">%d jours</item>
+    </plurals>
+    <plurals name="in_days">
+        <item quantity="one">dans %d jour</item>
+        <item quantity="many">dans %d jours</item>
+        <item quantity="other">dans %d jours</item>
+    </plurals>
+</resources>

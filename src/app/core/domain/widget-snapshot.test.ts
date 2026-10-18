@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { makeMilestone, makeProfile, settings } from '../../../testing/fixtures';
+import { makeMilestone, makeProfile, settings, translator } from '../../../testing/fixtures';
+import { formatTogetherTitle } from '../i18n/duration-format';
 import { fixedClock } from './clock';
 import { buildWidgetSnapshot, snapshotFingerprint, WIDGET_SNAPSHOT_SCHEMA_VERSION } from './widget-snapshot';
 
@@ -71,5 +72,32 @@ describe('buildWidgetSnapshot', () => {
     expect(snapshotFingerprint(a)).toBe(snapshotFingerprint(b));
     const c = buildWidgetSnapshot({ profile, milestones, settings: settings({ widgetPrivacy: 'normal' }), clock });
     expect(snapshotFingerprint(c)).not.toBe(snapshotFingerprint(a));
+  });
+});
+
+describe('together milestones in the snapshot', () => {
+  const togetherTitle = (mark: Parameters<typeof formatTogetherTitle>[1]) => formatTogetherTitle(translator, mark);
+
+  it('adds at most two derived entries in date order, skipping years the anniversary covers', () => {
+    const snapshot = buildWidgetSnapshot({ profile, milestones, settings: settings({ widgetPrivacy: 'normal' }), clock, togetherTitle });
+    expect(snapshot.upcoming).toEqual([
+      { title: 'Concert', date: '2026-11-02' },
+      { title: '2 years, 6 months together', date: '2026-12-14' },
+      { title: '1,000 days together', date: '2027-03-11' },
+      { title: 'Our anniversary', date: '2027-06-14' },
+    ]);
+  });
+
+  it('never adds them outside normal privacy or when turned off', () => {
+    const discreet = buildWidgetSnapshot({ profile, milestones, settings: settings({ widgetPrivacy: 'discreet' }), clock, togetherTitle });
+    expect(discreet.upcoming).toEqual([]);
+    const off = buildWidgetSnapshot({
+      profile,
+      milestones,
+      settings: settings({ widgetPrivacy: 'normal', togetherMonths: 'off', togetherDays: false }),
+      clock,
+      togetherTitle,
+    });
+    expect(off.upcoming.map((u) => u.title)).toEqual(['Concert', 'Our anniversary']);
   });
 });

@@ -20,6 +20,7 @@
 		4A524D000000000000000B02 /* HarmoniaWidgetsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A524D000000000000000A02 /* HarmoniaWidgetsPlugin.swift */; };
 		4A524D000000000000000B03 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A524D000000000000000A03 /* WatchBridge.swift */; };
 		4A524D000000000000000B05 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 4A524D000000000000000A05 /* PrivacyInfo.xcprivacy */; };
+		4A524D000000000000000B06 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 4A524D000000000000000A06 /* InfoPlist.xcstrings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +40,7 @@
 		4A524D000000000000000A03 /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
 		4A524D000000000000000A04 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		4A524D000000000000000A05 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		4A524D000000000000000A06 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -81,6 +83,7 @@
 				4A524D000000000000000A03 /* WatchBridge.swift */,
 				4A524D000000000000000A04 /* App.entitlements */,
 				4A524D000000000000000A05 /* PrivacyInfo.xcprivacy */,
+				4A524D000000000000000A06 /* InfoPlist.xcstrings */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -136,6 +139,8 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				fr,
+				nl,
 				Base,
 			);
 			mainGroup = 504EC2FB1FED79650016851F;
@@ -163,6 +168,7 @@
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
 				4A524D000000000000000B05 /* PrivacyInfo.xcprivacy in Resources */,
+				4A524D000000000000000B06 /* InfoPlist.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

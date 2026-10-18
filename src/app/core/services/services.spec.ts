@@ -101,7 +101,13 @@ describe('store-driven services', () => {
     const widgets = TestBed.inject(WidgetService);
     expect(widgets.current()).toMatchObject({ state: 'ready', privacy: 'discreet', displayName: null, upcoming: [] });
     store.settings.set({ ...DEFAULT_SETTINGS, widgetPrivacy: 'normal' });
-    expect(widgets.current()).toMatchObject({ displayName: 'Sam', upcoming: [{ title: 'Our anniversary', date: '2027-06-14' }] });
+    const normal = widgets.current();
+    expect(normal.displayName).toBe('Sam');
+    expect(normal.upcoming).toContainEqual({ title: 'Our anniversary', date: '2027-06-14' });
+    // Derived milestones together are titled in the app language and never exceed two entries.
+    const together = normal.upcoming.filter((u) => u.title?.endsWith(' together'));
+    expect(together.length).toBeGreaterThan(0);
+    expect(together.length).toBeLessThanOrEqual(2);
     store.profile.set(null);
     expect(widgets.current().state).toBe('empty');
   });

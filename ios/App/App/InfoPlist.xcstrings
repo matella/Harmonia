@@ -1,0 +1,75 @@
+{
+  "sourceLanguage": "en",
+  "version": "1.0",
+  "strings": {
+    "NSPhotoLibraryUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harmonia shows only the photos you choose for your profile, dates and memories. They stay on this device."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harmonia n’affiche que les photos que vous choisissez pour votre profil, vos dates et vos souvenirs. Elles restent sur cet appareil."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harmonia toont alleen de foto’s die je kiest voor je profiel, datums en herinneringen. Ze blijven op dit toestel."
+          }
+        }
+      }
+    },
+    "NSPhotoLibraryAddUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harmonia never saves to your photo library without your action."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harmonia n’enregistre jamais rien dans votre photothèque sans votre action."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harmonia bewaart nooit iets in je fotobibliotheek zonder dat je dat zelf doet."
+          }
+        }
+      }
+    },
+    "NSCameraUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harmonia only opens the camera if you choose to take a photo for a memory."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harmonia n’ouvre l’appareil photo que si vous choisissez de prendre une photo pour un souvenir."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harmonia opent de camera alleen als je ervoor kiest een foto te maken voor een herinnering."
+          }
+        }
+      }
+    }
+  }
+}

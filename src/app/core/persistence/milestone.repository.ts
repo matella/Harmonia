@@ -1,5 +1,6 @@
 import type { Clock } from '../domain/clock';
 import type { LeapDayPolicy, Milestone, MilestoneCategory, Recurrence, ReminderRule } from '../domain/models';
+import { TOGETHER_NOTIFICATION_ID_BASE } from '../domain/reminder-planner';
 import type { ReminderDraft, ValidMilestone } from '../domain/validation';
 import type { IdFactory } from './ids';
 import type { SqlDriver, SqlExecutor, SqlRow } from './sql-driver';
@@ -246,7 +247,8 @@ export class MilestoneRepository {
 async function nextNotificationId(tx: SqlExecutor): Promise<number> {
   const rows = await tx.query<{ value: number }>("SELECT value FROM id_sequences WHERE name = 'notification'");
   const next = rows[0] ? rows[0].value + 1 : FIRST_NOTIFICATION_ID;
-  if (next > 2_147_483_647) throw new Error('Notification ID space exhausted');
+  // IDs from TOGETHER_NOTIFICATION_ID_BASE on are reserved for derived reminders.
+  if (next >= TOGETHER_NOTIFICATION_ID_BASE) throw new Error('Notification ID space exhausted');
   await tx.run(
     `INSERT INTO id_sequences (name, value) VALUES ('notification', ?)
      ON CONFLICT (name) DO UPDATE SET value = excluded.value`,

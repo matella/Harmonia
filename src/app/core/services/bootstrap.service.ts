@@ -4,6 +4,7 @@ import { MediaStorageService } from '../platform/media-storage.service';
 import { DatabaseTooNewError, MigrationError } from '../persistence/migrations';
 import { AppStore } from '../state/app-store';
 import { DatabaseService } from './database.service';
+import { I18nService } from './i18n.service';
 import { LifecycleService } from './lifecycle.service';
 import { thumbnailSiblings } from './profile.service';
 import { SyncService } from './sync.service';
@@ -21,6 +22,7 @@ export class BootstrapService {
   private readonly sync = inject(SyncService);
   private readonly lifecycle = inject(LifecycleService);
   private readonly media = inject(MediaStorageService);
+  private readonly i18n = inject(I18nService);
 
   constructor() {
     inject(ThemeService); // applies the theme as soon as settings load
@@ -30,6 +32,8 @@ export class BootstrapService {
     try {
       await this.db.open();
       await this.sync.reload();
+      // Before the UI renders; changing the language later reloads the app.
+      this.i18n.apply(this.store.settings().language);
     } catch (error) {
       this.store.failure.set(
         error instanceof MigrationError

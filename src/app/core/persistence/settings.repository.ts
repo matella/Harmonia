@@ -25,6 +25,10 @@ const VALIDATORS: Validators = {
   widgetCounterMode: oneOf('days', 'calendar'),
   leapDayPolicy: oneOf('feb28', 'mar1'),
   timelineOrder: oneOf('oldest', 'newest'),
+  togetherMonths: oneOf('off', 'key', 'every'),
+  togetherDays: isBoolean,
+  togetherReminders: isBoolean,
+  language: oneOf('system', 'en', 'fr', 'nl'),
 };
 
 /**

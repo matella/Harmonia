@@ -2,6 +2,7 @@ import { todayIn, type IsoDate } from './local-date';
 import { compareOccurrences, upcomingOccurrences, type Occurrence } from './milestone-occurrence';
 import type { AccentPreset, AppSettings, IsoInstant, Milestone, RelationshipProfile, ThemePreference, WidgetPrivacyMode } from './models';
 import type { Clock } from './clock';
+import { togetherOptionsFrom, upcomingTogetherMarks, type TogetherMark } from './together-milestones';
 
 /**
  * Versioned contract consumed by native widgets, complications and watch apps
@@ -16,6 +17,8 @@ export const WIDGET_SNAPSHOT_SCHEMA_VERSION = 1;
 /** Occurrences further away than this are not included. */
 const UPCOMING_HORIZON_DAYS = 400;
 const MAX_UPCOMING = 6;
+/** Derived together milestones may take at most this many of the upcoming slots. */
+const MAX_TOGETHER = 2;
 
 export interface WidgetUpcomingEntry {
   /** Null unless privacy mode is "normal". */
@@ -48,6 +51,8 @@ export interface WidgetSnapshotInput {
   milestones: readonly Milestone[];
   settings: AppSettings;
   clock: Clock;
+  /** Localized title of a together milestone ("6 months together"); omit to leave them out. */
+  togetherTitle?: (mark: TogetherMark) => string;
 }
 
 /** The privacy-safe placeholder written when there is no profile or after deletion. */
@@ -80,9 +85,19 @@ export function buildWidgetSnapshot(input: WidgetSnapshotInput): WidgetSnapshot 
       .flatMap((m) => upcomingOccurrences(m, today, settings.leapDayPolicy, 2))
       .filter((o) => o.daysFromToday <= UPCOMING_HORIZON_DAYS)
       .sort(compareOccurrences);
-    upcoming = occurrences
-      .slice(0, MAX_UPCOMING)
-      .map((o) => ({ title: o.milestone.title, date: o.date.toString() }));
+    const entries = occurrences.map((o) => ({ title: o.milestone.title, date: o.date.toString() }));
+    if (input.togetherTitle) {
+      const options = togetherOptionsFrom(settings, input.milestones, profile.startDate);
+      const title = input.togetherTitle;
+      const marks = upcomingTogetherMarks(profile.startDate, today, options, MAX_TOGETHER)
+        .filter((m) => m.daysFromToday <= UPCOMING_HORIZON_DAYS)
+        .map((m) => ({ title: title(m), date: m.date.toString() }));
+      // At most MAX_TOGETHER derived entries, so the user's own dates keep most slots.
+      entries.push(...marks);
+      // Stable sort keeps the user's own date first when both fall on the same day.
+      entries.sort((a, b) => a.date.localeCompare(b.date));
+    }
+    upcoming = entries.slice(0, MAX_UPCOMING);
   }
 
   return {

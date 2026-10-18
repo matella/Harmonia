@@ -58,11 +58,17 @@ CLAUDE.md, README, docs (ARCHITECTURE, DATE_AND_TIME_RULES, WIDGET_SNAPSHOT, IOS
 ### Phase 8 — Release preparation — Partially done
 Done: original icons/splash, replaceable identifiers, versioning (1.0.0), permission strings, iOS privacy manifest, release checklist. Pending: signing, release builds, R8, store metadata/screenshots, naming review (see RELEASE_CHECKLIST.md).
 
+### Post-1.0 — Milestones together and French/Dutch — Done, Tested, partly Verified (Android)
+- **Milestones together** (`core/domain/together-milestones.ts`): 1, 3, 6, 9 months then every half year (or every month, or off), plus 100/200/300/500 days then every 500 (toggle). Derived from the start date with the counter's month rule; whole years skipped when the yearly anniversary exists. Shown on Home (whichever comes first; a user date wins a tie), in Dates (next one, also before any date exists) and on the counter detail (next four); up to 2 in the widget snapshot; optional reminders (off by default, reserved notification-ID range, discreet copy unless titles are allowed). Settings in Appearance and Reminders.
+- **Languages**: complete French ("vous") and Dutch ("je"/"jullie"; reminders = "meldingen", memories = "herinneringen") catalogs, **drafts pending native-speaker review**. Language setting (Match the device / English / Français / Nederlands) in Appearance, applied before first render; formatting locale keeps the device region. Android `values-fr`/`values-nl` for widgets, configuration and Wear OS, plus Android 13+ per-app language (`locales_config.xml`). iOS: fr/nl in the three String Catalogs, `InfoPlist.xcstrings` for permission prompts, `CFBundleLocalizations` and project `knownRegions` (**uncompiled — no Mac**).
+- Viewed on emulators: Home, Dates, counter detail, Appearance and Reminders settings, medium widget (French), Wear OS app screen (French). **Not viewed:** small widget, widget configuration screen and Wear complication in French/Dutch, Dutch widget, iOS anything.
+- Tests: 23 together-milestone tests (incl. counter-agreement properties for month-end and Feb 29 starts), 5 together-reminder tests, 2 snapshot tests, catalog parity tests (keys, plural/string kind, placeholders) and FR/NL formatting tests, and a Dates component spec (milestone together shown with no dates yet).
+
 ## Test and build results (2026-10-18, this environment, after the toolchain upgrade)
 
 | Check | Command | Result |
 |---|---|---|
-| Full JS gate | `bun run check` | ✅ typecheck, lint (all files pass), 11 files / 136 domain tests, 2 files / 9 Angular specs, production build 1.11 MB initial (≈256 kB transfer), no warnings |
+| Full JS gate | `bun run check` | ✅ typecheck, lint (all files pass), 13 files / 175 domain tests, 3 files / 10 Angular specs, production build 1.17 MB initial (≈268 kB transfer), no warnings |
 | Kotlin core | `bun run android:test` (`:harmonia-core:test`) | ✅ 9 tests (all shared vectors), re-run after `cleanTest` |
 | Android app + Wear builds | `bun run android:build`, `:wear:assembleDebug` | ✅ on AGP 9.4.1 / Gradle 9.8.1 / Kotlin 2.4.21 |
 | Android lint | `:app:lintDebug :wear:lintDebug` | ✅ 0 errors (10 + 3 warnings: API-level attributes, unused resources, style) |
@@ -71,6 +77,10 @@ Done: original icons/splash, replaceable identifiers, versioning (1.0.0), permis
 | 200 % font: tab labels | `font_scale 2.0` | ✅ labels end with an ellipsis ("Memor…") instead of clipping |
 | Wear OS app + complication | Wear OS 7 emulator | ✅ see Phase 6 |
 | Medium widget on API 37.2 | Pixel launcher widget picker → Add | ✅ listed with both sizes and descriptions; renders "You and Sam / 856 days / Our anniversary, June 14, in 239 days" (privacy "Everything") |
+| French via Android per-app language | `cmd locale set-app-locales … fr-BE` | ✅ WebView reports `fr-BE`; Home, Dates and counter detail fully French ("Ensemble depuis 2 ans 4 mois 4 jours", "14 juin 2024", "2 ans et 6 mois ensemble · dans 57 jours", "1 000 jours ensemble"); medium widget French incl. the derived title |
+| Dutch via the in-app setting | Appearance → Nederlands (device English) | ✅ saves, reloads, `<html lang="nl">`, all copy Dutch; tab bar fits at 100 %, "Herinn…" ellipsis at 200 % |
+| Reminders for milestones together | Reminders → toggle on | ✅ 5 scheduled: anniversary day-before + 2026-12-13/14 and 2027-03-10/11 at 09:00 (inexact) |
+| Android lint with translations | `:app:lintDebug :wear:lintDebug` | ✅ 0 errors after marking fixed strings `translatable="false"` (French "jour" label: `ImpliedQuantity` suppressed — correct for a label beside a separate number) |
 | Bun dev server | `bunx ng serve` (`.claude/launch.json`) | ✅ serves the app; file watching rebuilds on change (prebuilt `@parcel/watcher-win32-x64`) |
 | Earlier Android checks (API 36.1, before the upgrade) | manual via adb | ✅ time-zone change, reboot, edit milestone (no duplicate alarms), time picker + precise counter, dark mode, export ZIP, small widget, widget refresh/reboot paths (Phase 5) — not repeated after the upgrade |
 | Swift `HarmoniaCore` tests | `swift test` | ⛔ not run (no Swift toolchain) |
@@ -84,7 +94,10 @@ Done: original icons/splash, replaceable identifiers, versioning (1.0.0), permis
 - Force-stopping the app on Android 15+ greys out its widgets until the app is reopened (OS policy).
 - Export is share-sheet based; there is no in-app import yet (the export parser validates and versions the format for a future import).
 - A future-start "countdown" mode is not implemented; future start dates are rejected by validation.
-- Only English copy ships; the catalog and formatting are localization-ready (regional date formats already follow the device).
+- French and Dutch are drafts written without native-speaker review.
+- Text the user typed (titles such as "Our anniversary" from onboarding) stays in the language it was written in.
+- The in-app language override changes the app, notifications and derived widget titles, but native widget/watch labels follow the device (or Android per-app) language, so they can differ until both match.
+- Reminders for milestones together schedule only the next month mark and next day mark per offset; later ones are planned on the next launch.
 - Export builds the ZIP in memory; very large photo libraries may need streaming.
 
 ## Manual verification still required
@@ -99,4 +112,5 @@ Done: original icons/splash, replaceable identifiers, versioning (1.0.0), permis
 2. Pair phone + watch and verify Data Layer sync end to end; re-run the reboot/time-zone/widget-refresh checks on API 37.2.
 3. Device accessibility pass; fix findings.
 4. Signing + release builds (AAB/IPA), R8 rules, store metadata and screenshots; naming review.
-5. Optional next features from the spec backlog: data import from export, French/Dutch catalogs, future-start countdown mode.
+5. Native-speaker review of the French and Dutch copy (app, widgets, watch, permission prompts, store listing).
+6. Optional next features from the spec backlog: data import from export, future-start countdown mode.

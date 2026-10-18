@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Harmonia</string>
+    <string name="app_name" translatable="false">Harmonia</string>
     <string name="complication_label">Days together</string>
     <string name="complication_days_label">days</string>
     <string name="watch_placeholder">Open Harmonia on your phone to begin.</string>
@@ -8,9 +8,9 @@
     <string name="today">today</string>
     <string name="next_untitled">Next date</string>
     <string name="next_line">%1$s, %2$s</string>
-    <string name="list_separator">", "</string>
+    <string name="list_separator" translatable="false">", "</string>
     <!-- Neutral preview values shown in the watch-face complication picker (not user data). -->
-    <string name="preview_days">365</string>
+    <string name="preview_days" translatable="false">365</string>
     <string name="preview_duration">1 year</string>
     <plurals name="days_label">
         <item quantity="one">day</item>

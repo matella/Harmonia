@@ -38,7 +38,7 @@ Producer: `buildWidgetSnapshot()` in `src/app/core/domain/widget-snapshot.ts`. C
 | `counterMode` | `days` or `calendar` (years + months). Forced to `days` in `minimal`. |
 | `startDate`, `calendarTimeZoneId` | Used to **recompute** the day count at render time, so widgets stay correct without the app. |
 | `displayName` | Only present in `normal`. |
-| `upcoming` | Next occurrences (≤ 6, ≤ ~13 months ahead, includes the following year's occurrence of yearly dates). Empty unless `normal`. Readers pick the first date ≥ today. |
+| `upcoming` | Next occurrences (≤ 6, ≤ ~13 months ahead, includes the following year's occurrence of yearly dates). Up to 2 entries may be derived milestones together ("6 months together"), titled in the app's language at write time. Empty unless `normal`. Readers pick the first date ≥ today. |
 | `appearance`, `accent` | Hints only; native widgets follow the system light/dark appearance. |
 
 **Never included:** notes, memories, photos or photo paths, record IDs, reminder settings.

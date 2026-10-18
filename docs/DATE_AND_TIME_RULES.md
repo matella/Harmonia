@@ -42,6 +42,16 @@ Date correctness outranks everything else in Harmonia (spec §1.4, §8). This do
 - **Feb 29 policy** (app setting, overridable per milestone): in common years a Feb 29 milestone is celebrated on **Feb 28 (default)** or **Mar 1**. The same function (`annualDateInYear`) is used for upcoming lists, countdowns, reminders and widget snapshots, so the policy is applied consistently. 2100 is correctly treated as a common year.
 - Ordering of occurrences on the same date is deterministic: untimed before timed, then time, then title (locale-aware, case-insensitive), then `createdAt`, then `id`.
 
+## Milestones together (derived from the start date)
+
+`core/domain/together-milestones.ts` derives "N months together" and "N days together" from `startDate`; nothing is stored.
+
+- **Month marks** fall on `start + N months` with the counter's clamping rule (Temporal `constrain`), always measured from the original start. On that date the counter reads exactly N months and 0 days, and N−1 months the day before (property-tested for month-end and Feb 29 starts). The leap-day policy does not apply: like the counter, a Feb 29 start reaches 12 months on Feb 28.
+- **Sets** (setting `togetherMonths`): `key` = 1, 3, 6, 9 months, then every 6 months; `every` = every month; `off`. Whole years (12, 24, … months) are left out when a yearly milestone sits on the start date (the onboarding anniversary), so the same day is not celebrated twice.
+- **Day marks** (setting `togetherDays`): 100, 200, 300, then every 500 days; the date is `start + N days`.
+- Same-day ordering: month marks before day marks, then by count. Home and Dates show a user date before a together mark on the same day.
+- These rules are TypeScript-only. Native widgets and watches receive the resulting dates and titles through the snapshot's `upcoming` list, so Kotlin/Swift need no equivalent and the shared vectors are unchanged.
+
 ## Time zones and DST
 
 - Reminders fire at their local wall-clock time **in the device's current zone**. Plans are recomputed on launch, resume and time-zone change, so after travelling a 09:00 reminder fires at 09:00 local time.
