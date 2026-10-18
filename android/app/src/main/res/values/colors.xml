@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Harmonia tokens for native surfaces (light). Keep in sync with src/theme/_tokens.scss. -->
+    <color name="hm_canvas">#F8F3ED</color>
+    <color name="hm_surface">#FFFCF8</color>
+    <color name="hm_surface_muted">#F0E7E2</color>
+    <color name="hm_ink">#2B2024</color>
+    <color name="hm_ink_muted">#76676B</color>
+    <color name="hm_berry">#6D243B</color>
+    <color name="hm_rose">#C26A77</color>
+    <color name="hm_line">#E3D8D3</color>
+    <color name="hm_on_berry">#FFFCF8</color>
+    <color name="colorPrimary">#6D243B</color>
+    <color name="colorPrimaryDark">#6D243B</color>
+    <color name="colorAccent">#C26A77</color>
+</resources>

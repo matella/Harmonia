@@ -1,0 +1,38 @@
+.hm-form {
+  padding-top: var(--hm-space-4);
+}
+
+.group {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+
+  legend {
+    padding: 0;
+    margin-bottom: var(--hm-space-2);
+  }
+}
+
+.categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hm-space-2);
+}
+
+.reminders {
+  border-top: var(--hm-hairline);
+  border-bottom: var(--hm-hairline);
+}
+
+.reminder-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hm-space-4);
+  padding-bottom: var(--hm-space-2);
+}
+
+.photo-actions {
+  display: flex;
+  gap: var(--hm-space-2);
+}

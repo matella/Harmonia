@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="hm_canvas">#171315</color>
+    <color name="hm_surface">#242023</color>
+    <color name="hm_surface_muted">#30282D</color>
+    <color name="hm_ink">#F5EEEC</color>
+    <color name="hm_ink_muted">#C0B0B3</color>
+    <color name="hm_berry">#D18A9A</color>
+    <color name="hm_rose">#E0A1AC</color>
+    <color name="hm_line">#44383E</color>
+    <color name="hm_on_berry">#1D1518</color>
+</resources>

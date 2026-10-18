@@ -1,0 +1,173 @@
+<ion-header class="ion-no-border">
+  <ion-toolbar>
+    <ion-buttons slot="start"><ion-back-button defaultHref="/tabs/dates" [text]="'common.cancel' | t" icon="" /></ion-buttons>
+    <ion-title>{{ (isEdit() ? 'milestone.editTitle' : 'milestone.newTitle') | t }}</ion-title>
+    <ion-buttons slot="end">
+      <ion-button [strong]="true" [disabled]="saving()" (click)="save()">{{ 'common.save' | t }}</ion-button>
+    </ion-buttons>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content>
+  <div class="hm-page">
+    <form class="hm-form" (submit)="save(); $event.preventDefault()" novalidate>
+      <fieldset class="group">
+        <legend class="hm-field__label">{{ 'milestone.typeLabel' | t }}</legend>
+        <div class="categories" role="radiogroup" [attr.aria-label]="'milestone.typeLabel' | t">
+          @for (c of categories; track c) {
+            <button
+              type="button"
+              role="radio"
+              class="hm-chip"
+              [attr.aria-checked]="category() === c"
+              (click)="chooseCategory(c)"
+            >
+              <ion-icon [name]="categoryIcons[c]" aria-hidden="true" />{{ c | categoryLabel }}
+            </button>
+          }
+        </div>
+      </fieldset>
+
+      <div class="hm-field">
+        <label class="hm-field__label" for="m-title">{{ 'milestone.titleLabel' | t }}</label>
+        <input
+          id="m-title"
+          class="hm-input"
+          type="text"
+          maxlength="80"
+          autocapitalize="sentences"
+          [placeholder]="'milestone.titlePlaceholder' | t"
+          [value]="title()"
+          [attr.aria-invalid]="errors().title ? 'true' : null"
+          [attr.aria-describedby]="errors().title ? 'm-title-error' : null"
+          (input)="onTitleInput($any($event.target).value)"
+        />
+        @if (errors().title) {
+          <span id="m-title-error" class="hm-field__error" role="alert">
+            <ion-icon name="alert-circle-outline" aria-hidden="true" />{{ errors().title }}
+          </span>
+        }
+      </div>
+
+      <hm-date-field [label]="'milestone.dateLabel' | t" [(value)]="eventDate" [error]="errors().eventDate ?? null" />
+
+      <div class="hm-switch-row">
+        <label class="hm-switch-row__text" for="m-has-time">{{ 'milestone.timeLabel' | t }}</label>
+        <ion-toggle id="m-has-time" [checked]="hasTime()" (ionChange)="hasTime.set($event.detail.checked)" />
+      </div>
+      @if (hasTime()) {
+        <hm-date-field mode="time" [label]="'milestone.timeLabel' | t" [(value)]="eventTime" [error]="errors().eventTime ?? null" />
+      }
+
+      <fieldset class="group">
+        <legend class="hm-field__label">{{ 'milestone.repeatLabel' | t }}</legend>
+        <div role="radiogroup" [attr.aria-label]="'milestone.repeatLabel' | t">
+          <button type="button" role="radio" class="hm-choice" [attr.aria-checked]="recurrence() === 'none'" (click)="recurrence.set('none')">
+            <span class="hm-choice__mark" aria-hidden="true"></span>
+            <span class="hm-choice__text">{{ 'milestone.repeatNone' | t }}</span>
+          </button>
+          <button type="button" role="radio" class="hm-choice" [attr.aria-checked]="recurrence() === 'yearly'" (click)="recurrence.set('yearly')">
+            <span class="hm-choice__mark" aria-hidden="true"></span>
+            <span class="hm-choice__text">{{ 'milestone.repeatYearly' | t }}</span>
+            <ion-icon name="repeat-outline" aria-hidden="true" />
+          </button>
+        </div>
+      </fieldset>
+
+      @if (recurrence() === 'yearly' && isLeapDay()) {
+        <fieldset class="group">
+          <legend class="hm-field__label">{{ 'milestone.leapLabel' | t }}</legend>
+          <div role="radiogroup" [attr.aria-label]="'milestone.leapLabel' | t">
+            <button type="button" role="radio" class="hm-choice" [attr.aria-checked]="leapPolicy() === null" (click)="leapPolicy.set(null)">
+              <span class="hm-choice__mark" aria-hidden="true"></span>
+              <span class="hm-choice__text">{{ 'milestone.leapDefault' | t }}</span>
+            </button>
+            <button type="button" role="radio" class="hm-choice" [attr.aria-checked]="leapPolicy() === 'feb28'" (click)="leapPolicy.set('feb28')">
+              <span class="hm-choice__mark" aria-hidden="true"></span>
+              <span class="hm-choice__text">{{ 'milestone.leapFeb28' | t }}</span>
+            </button>
+            <button type="button" role="radio" class="hm-choice" [attr.aria-checked]="leapPolicy() === 'mar1'" (click)="leapPolicy.set('mar1')">
+              <span class="hm-choice__mark" aria-hidden="true"></span>
+              <span class="hm-choice__text">{{ 'milestone.leapMar1' | t }}</span>
+            </button>
+          </div>
+        </fieldset>
+      }
+
+      <section class="group reminders" aria-labelledby="m-reminders-label">
+        <div class="hm-switch-row">
+          <label class="hm-switch-row__text" id="m-reminders-label" for="m-reminders">
+            {{ 'milestone.remindersLabel' | t }}
+            <span class="hm-switch-row__hint">{{ 'milestone.remindersHint' | t }}</span>
+          </label>
+          <ion-toggle id="m-reminders" [checked]="remindersOn()" (ionChange)="remindersOn.set($event.detail.checked)" />
+        </div>
+        @if (remindersOn()) {
+          <div class="reminder-body">
+            <hm-reminder-offsets [(selected)]="offsets" [label]="'milestone.remindersLabel' | t" />
+            @if (errors().reminders) {
+              <span class="hm-field__error" role="alert">
+                <ion-icon name="alert-circle-outline" aria-hidden="true" />{{ errors().reminders }}
+              </span>
+            }
+            <hm-date-field mode="time" [label]="'milestone.reminderTime' | t" [(value)]="reminderTime" />
+            <div class="hm-switch-row">
+              <label class="hm-switch-row__text" for="m-reveal">
+                {{ 'milestone.revealTitle' | t }}
+                <span class="hm-switch-row__hint">{{ 'milestone.revealTitleHint' | t }}</span>
+              </label>
+              <ion-toggle id="m-reveal" [checked]="revealTitle()" (ionChange)="revealTitle.set($event.detail.checked)" />
+            </div>
+          </div>
+        }
+      </section>
+
+      <div class="hm-field">
+        <label class="hm-field__label" for="m-note">
+          {{ 'milestone.noteLabel' | t }} <span class="hm-field__optional">{{ 'common.optional' | t }}</span>
+        </label>
+        <textarea
+          id="m-note"
+          class="hm-input"
+          maxlength="2000"
+          [placeholder]="'milestone.notePlaceholder' | t"
+          [value]="note()"
+          [attr.aria-invalid]="errors().note ? 'true' : null"
+          (input)="note.set($any($event.target).value)"
+        ></textarea>
+        @if (errors().note) {
+          <span class="hm-field__error" role="alert">{{ errors().note }}</span>
+        }
+      </div>
+
+      <div class="hm-field">
+        <span class="hm-field__label">
+          {{ 'milestone.photoLabel' | t }} <span class="hm-field__optional">{{ 'common.optional' | t }}</span>
+        </span>
+        @if (hasPhoto()) {
+          <hm-photo-frame shape="soft" ratio="16 / 10" [src]="newPhoto.url()" [path]="photoPath()" [alt]="title()" />
+        }
+        <div class="photo-actions">
+          <button type="button" class="hm-btn hm-btn--outline" (click)="choosePhoto()">
+            <ion-icon name="image-outline" aria-hidden="true" />{{ (hasPhoto() ? 'photo.change' : 'photo.choose') | t }}
+          </button>
+          @if (hasPhoto()) {
+            <button type="button" class="hm-btn hm-btn--quiet" (click)="removePhoto()">{{ 'photo.remove' | t }}</button>
+          }
+        </div>
+      </div>
+
+      <div class="hm-switch-row">
+        <label class="hm-switch-row__text" for="m-pin">
+          {{ 'milestone.pinLabel' | t }}
+          <span class="hm-switch-row__hint">{{ 'milestone.pinHint' | t }}</span>
+        </label>
+        <ion-toggle id="m-pin" [checked]="isPinned()" (ionChange)="isPinned.set($event.detail.checked)" />
+      </div>
+
+      <button type="submit" class="hm-btn hm-btn--block" [disabled]="saving()">
+        {{ (saving() ? 'common.saving' : 'common.save') | t }}
+      </button>
+    </form>
+  </div>
+</ion-content>

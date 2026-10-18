@@ -1,0 +1,13 @@
+plugins {
+    // Lets Gradle provision the JDK 21 toolchain required by Capacitor 8 plugins
+    // when the host only has a newer JDK (e.g. Android Studio's bundled JBR 25).
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+include ':app'
+include ':harmonia-core'
+include ':wear'
+include ':capacitor-cordova-android-plugins'
+project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
+
+apply from: 'capacitor.settings.gradle'

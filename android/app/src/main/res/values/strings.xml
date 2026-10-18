@@ -1,0 +1,48 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Harmonia</string>
+    <string name="title_activity_main">Harmonia</string>
+    <string name="package_name">harmonia.companion</string>
+    <string name="custom_url_scheme">harmonia</string>
+
+    <!-- Widgets -->
+    <string name="widget_small_name">Days together</string>
+    <string name="widget_small_description">Your day count and the Harmonia mark.</string>
+    <string name="widget_medium_name">Together and next date</string>
+    <string name="widget_medium_description">Your counter and the next date that matters.</string>
+    <string name="widget_placeholder">Open Harmonia to begin</string>
+    <string name="widget_with_name">You and %1$s</string>
+    <string name="widget_today">Today</string>
+    <string name="widget_next_untitled">Next date</string>
+    <string name="widget_years_months">%1$s, %2$s</string>
+    <plurals name="widget_days_label">
+        <item quantity="one">day</item>
+        <item quantity="other">days</item>
+    </plurals>
+    <plurals name="widget_days_together">
+        <item quantity="one">%1$s day together</item>
+        <item quantity="other">%1$s days together</item>
+    </plurals>
+    <plurals name="widget_in_days">
+        <item quantity="one">in %1$s day</item>
+        <item quantity="other">in %1$s days</item>
+    </plurals>
+    <plurals name="widget_years">
+        <item quantity="one">%d year</item>
+        <item quantity="other">%d years</item>
+    </plurals>
+    <plurals name="widget_months">
+        <item quantity="one">%d month</item>
+        <item quantity="other">%d months</item>
+    </plurals>
+
+    <!-- Widget configuration -->
+    <string name="config_title">Widget options</string>
+    <string name="config_counter">Counter</string>
+    <string name="config_counter_app">Use the app setting</string>
+    <string name="config_counter_days">Total days</string>
+    <string name="config_counter_calendar">Years and months</string>
+    <string name="config_details">Show name and next date</string>
+    <string name="config_details_hint">Only shown when Harmonia’s widget privacy is set to Everything.</string>
+    <string name="config_save">Save</string>
+</resources>

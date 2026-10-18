@@ -1,0 +1,65 @@
+.hm-form {
+  padding-top: var(--hm-space-4);
+}
+
+.photos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: var(--hm-space-3);
+}
+
+.photo {
+  position: relative;
+}
+
+.remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--hm-ink) 72%, transparent);
+  color: var(--hm-canvas);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.add-photo {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1.5px dashed var(--hm-line-strong);
+  border-radius: var(--hm-radius-control);
+  background: transparent;
+  color: var(--hm-berry);
+  font: 500 var(--hm-text-xs) / 1.2 var(--hm-font-ui);
+  text-align: center;
+  padding: var(--hm-space-2);
+  cursor: pointer;
+
+  ion-icon {
+    font-size: 24px;
+  }
+}
+
+.body {
+  min-height: 160px;
+  font-family: var(--hm-font-display);
+  font-size: var(--hm-text-lg);
+  line-height: 1.6;
+}
+
+select.hm-input {
+  background-image: none;
+}

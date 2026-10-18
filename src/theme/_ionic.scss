@@ -1,0 +1,241 @@
+// Maps Harmonia tokens onto Ionic's theming variables so stock components inherit
+// the identity instead of the default Ionic look.
+
+:root,
+:root.hm-dark {
+  --ion-font-family: var(--hm-font-ui);
+  --ion-background-color: var(--hm-canvas);
+  --ion-text-color: var(--hm-ink);
+  --ion-border-color: var(--hm-line);
+  --ion-item-background: transparent;
+  --ion-item-border-color: var(--hm-line);
+  --ion-toolbar-background: var(--hm-canvas);
+  --ion-toolbar-border-color: transparent;
+  --ion-toolbar-color: var(--hm-ink);
+  --ion-tab-bar-background: var(--hm-surface);
+  --ion-tab-bar-border-color: var(--hm-line);
+  --ion-tab-bar-color: var(--hm-ink-muted);
+  --ion-tab-bar-color-selected: var(--hm-berry);
+  --ion-placeholder-color: var(--hm-ink-muted);
+  --ion-overlay-background-color: var(--hm-surface);
+  --ion-backdrop-color: var(--hm-scrim);
+
+  --ion-color-primary: var(--hm-berry);
+  --ion-color-primary-rgb: var(--hm-berry-rgb);
+  --ion-color-primary-contrast: var(--hm-on-berry);
+  --ion-color-primary-contrast-rgb: 255, 252, 248;
+  --ion-color-primary-shade: var(--hm-berry);
+  --ion-color-primary-tint: var(--hm-berry);
+
+  --ion-color-danger: var(--hm-danger);
+  --ion-color-danger-contrast: var(--hm-on-danger);
+  --ion-color-danger-shade: var(--hm-danger);
+  --ion-color-danger-tint: var(--hm-danger);
+
+  --ion-color-medium: var(--hm-ink-muted);
+  --ion-color-medium-shade: var(--hm-ink-muted);
+  --ion-color-medium-tint: var(--hm-ink-muted);
+}
+
+:root {
+  --ion-background-color-rgb: 248, 243, 237;
+  --ion-text-color-rgb: 43, 32, 36;
+}
+
+:root.hm-dark {
+  --ion-background-color-rgb: 23, 19, 21;
+  --ion-text-color-rgb: 245, 238, 236;
+  --ion-color-primary-contrast-rgb: 29, 21, 24;
+}
+
+ion-content {
+  --background: var(--hm-canvas);
+  --padding-start: var(--hm-inset);
+  --padding-end: var(--hm-inset);
+}
+
+ion-toolbar {
+  --padding-start: calc(var(--hm-inset) - 8px);
+  --padding-end: calc(var(--hm-inset) - 8px);
+  --min-height: 56px;
+}
+
+ion-title {
+  font-family: var(--hm-font-display);
+  font-weight: 500;
+  font-size: var(--hm-text-lg);
+  letter-spacing: 0.005em;
+}
+
+ion-header ion-toolbar:first-of-type {
+  padding-top: var(--ion-safe-area-top, 0);
+}
+
+ion-header.header-md {
+  box-shadow: none;
+}
+
+ion-tab-bar {
+  --border: 1px solid var(--hm-line);
+  height: calc(64px + var(--ion-safe-area-bottom, 0px));
+  padding-bottom: var(--ion-safe-area-bottom, 0);
+}
+
+ion-tab-button {
+  --ripple-color: var(--hm-rose-soft);
+  --padding-start: 2px;
+  --padding-end: 2px;
+  min-width: 0;
+  font-family: var(--hm-font-ui);
+  font-size: 0.75rem;
+  font-weight: 500;
+  min-height: var(--hm-tap);
+
+  ion-icon {
+    font-size: 23px;
+  }
+
+  // Large system font sizes: keep labels inside their tab instead of clipping.
+  ion-label {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+ion-item {
+  --background: transparent;
+  --border-color: var(--hm-line);
+  --color: var(--hm-ink);
+  --padding-start: 0;
+  --inner-padding-end: 0;
+  --min-height: 52px;
+  --highlight-color-focused: var(--hm-berry);
+  --highlight-color-valid: var(--hm-berry);
+  font-size: var(--hm-text-md);
+}
+
+ion-list {
+  --ion-item-background: transparent;
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+ion-toggle {
+  --track-background: var(--hm-line-strong);
+  --track-background-checked: var(--hm-berry);
+  --handle-background: var(--hm-surface);
+  --handle-background-checked: var(--hm-surface);
+}
+
+ion-segment {
+  --background: var(--hm-surface-muted);
+  border-radius: var(--hm-radius-pill);
+  padding: 3px;
+}
+
+ion-segment-button {
+  --color: var(--hm-ink-muted);
+  --color-checked: var(--hm-ink);
+  --indicator-color: var(--hm-surface);
+  --indicator-box-shadow: 0 1px 3px rgba(43, 32, 36, 0.12);
+  --border-radius: var(--hm-radius-pill);
+  --padding-top: 6px;
+  --padding-bottom: 6px;
+  min-height: 36px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--hm-font-ui);
+  font-weight: 500;
+  font-size: var(--hm-text-sm);
+}
+
+ion-datetime {
+  --background: var(--hm-surface);
+  --background-rgb: 255, 252, 248;
+  --title-color: var(--hm-ink);
+  color: var(--hm-ink);
+  font-family: var(--hm-font-ui);
+  border-radius: var(--hm-radius-card);
+}
+
+:root.hm-dark ion-datetime {
+  --background-rgb: 36, 32, 35;
+}
+
+ion-modal.hm-sheet {
+  --border-radius: var(--hm-radius-card);
+  --background: var(--hm-surface);
+}
+
+ion-modal.hm-datetime-modal {
+  --width: fit-content;
+  --height: fit-content;
+  --border-radius: var(--hm-radius-card);
+  --background: var(--hm-surface);
+  --box-shadow: var(--hm-shadow);
+
+  ion-datetime {
+    width: min(340px, 92vw);
+    min-height: 360px;
+  }
+
+  ion-datetime.datetime-presentation-time {
+    min-height: 0;
+  }
+}
+
+ion-alert {
+  --background: var(--hm-surface);
+  font-family: var(--hm-font-ui);
+
+  .alert-title {
+    font-family: var(--hm-font-display) !important;
+    font-weight: 500 !important;
+    color: var(--hm-ink) !important;
+  }
+
+  .alert-message {
+    color: var(--hm-ink-muted) !important;
+  }
+
+  .alert-button.hm-alert-destructive {
+    color: var(--hm-danger) !important;
+  }
+}
+
+ion-action-sheet {
+  --background: var(--hm-surface);
+  --button-color: var(--hm-ink);
+  font-family: var(--hm-font-ui);
+}
+
+ion-toast.hm-toast {
+  --background: var(--hm-ink);
+  --color: var(--hm-canvas);
+  --border-radius: var(--hm-radius-control);
+  --button-color: var(--hm-rose-soft);
+  font-family: var(--hm-font-ui);
+}
+
+ion-toast.hm-toast--warning {
+  --background: var(--hm-berry);
+  --color: var(--hm-on-berry);
+}
+
+ion-back-button {
+  --color: var(--hm-ink);
+  --icon-font-size: 22px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+ion-toolbar ion-button {
+  --color: var(--hm-berry);
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--hm-font-ui);
+  font-weight: 500;
+  font-size: var(--hm-text-md);
+}

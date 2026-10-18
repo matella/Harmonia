@@ -1,0 +1,82 @@
+<ion-header class="ion-no-border">
+  <ion-toolbar>
+    <div class="topbar">
+      <span class="wordmark">{{ 'app.name' | t }}</span>
+      <a class="icon-button" routerLink="/settings" [attr.aria-label]="'home.settings' | t">
+        <ion-icon name="settings-outline" aria-hidden="true" />
+      </a>
+    </div>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content>
+  <div class="hm-page home">
+    @let p = profile();
+    @if (p) {
+      <section class="hero" aria-labelledby="hero-heading">
+        <h1 id="hero-heading" class="hm-visually-hidden">{{ 'counter.togetherFor' | t }}</h1>
+        @if (p.photoPath) {
+          <hm-photo-frame class="hero__photo" shape="arch" ratio="5 / 4" [path]="p.photoPath" [alt]="'home.photoAlt' | t" />
+        }
+        <div class="hero__top">
+          @if (!p.photoPath) {
+            <hm-emblem [size]="30" />
+          }
+          @if (p.displayName) {
+            <p class="greeting">{{ 'home.greeting' | t: { name: p.displayName } }}</p>
+          }
+        </div>
+
+        <hm-counter [counter]="store.counter()" [format]="format()" (cycle)="cycleFormat()" />
+
+        <p class="since">
+          {{ 'counter.togetherSince' | t: { date: (p.startDate | hmDate: 'long') } }}
+          <a class="hm-link-button details" routerLink="/counter">{{ 'home.counterDetails' | t }}</a>
+        </p>
+      </section>
+
+      <section class="hm-section" aria-labelledby="next-heading">
+        <div class="hm-section__head">
+          <h2 id="next-heading" class="hm-section__title">{{ 'home.nextMoment' | t }}</h2>
+          @if (next()) {
+            <a class="hm-link-button" routerLink="/tabs/dates">{{ 'home.viewAll' | t }}</a>
+          }
+        </div>
+        @if (next(); as occurrence) {
+          <hm-next-milestone-card [occurrence]="occurrence" />
+        } @else {
+          <div class="hm-card">
+            <hm-empty-state
+              [compact]="true"
+              icon="calendar-outline"
+              [title]="'home.noUpcomingTitle' | t"
+              [body]="'home.noUpcomingBody' | t"
+              [actionLabel]="'home.addDate' | t"
+              (action)="addDate()"
+            />
+          </div>
+        }
+      </section>
+
+      @if (story().length > 0) {
+        <section class="hm-section" aria-labelledby="story-heading">
+          <div class="hm-section__head">
+            <h2 id="story-heading" class="hm-section__title">{{ 'home.story' | t }}</h2>
+            <a class="hm-link-button" routerLink="/tabs/timeline">{{ 'home.viewAll' | t }}</a>
+          </div>
+          <ul class="hm-rows">
+            @for (o of story(); track o.milestone.id) {
+              <li><hm-milestone-row [occurrence]="o" [reminderState]="reminderState(o.milestone.id)" /></li>
+            }
+          </ul>
+        </section>
+      }
+
+      <div class="quick-add">
+        <button type="button" class="hm-btn hm-btn--outline hm-btn--block" (click)="openAddMenu()">
+          <ion-icon name="add" aria-hidden="true" />{{ 'home.add' | t }}
+        </button>
+      </div>
+    }
+  </div>
+</ion-content>

@@ -1,0 +1,30 @@
+// Pure Kotlin/JVM module shared by the phone widgets (:app) and Wear OS (:wear).
+// Contains the minimal date rules and the widget snapshot contract, verified against
+// shared/test-vectors/date-vectors.json — the same vectors the TypeScript domain uses.
+apply plugin: 'java-library'
+apply plugin: 'org.jetbrains.kotlin.jvm'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+kotlin {
+    jvmToolchain(21)
+}
+
+dependencies {
+    // org.json is part of the Android platform; it is only needed on the classpath here.
+    compileOnly "org.json:json:$orgJsonVersion"
+    testImplementation "org.json:json:$orgJsonVersion"
+    testImplementation "junit:junit:$junitVersion"
+}
+
+tasks.withType(Test).configureEach {
+    systemProperty 'harmonia.vectors', rootProject.file('../shared/test-vectors/date-vectors.json').absolutePath
+    testLogging {
+        events 'failed'
+        exceptionFormat 'full'
+    }
+}

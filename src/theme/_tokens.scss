@@ -1,0 +1,105 @@
+// Harmonia design tokens (spec §3.2). Components reference these variables only;
+// never hard-code hex values elsewhere.
+
+:root {
+  // Color — light
+  --hm-canvas: #f8f3ed;
+  --hm-surface: #fffcf8;
+  --hm-surface-muted: #f0e7e2;
+  --hm-ink: #2b2024;
+  --hm-ink-muted: #76676b; // 4.8:1 on canvas
+  --hm-berry: #6d243b; // 10:1 on canvas — primary actions and emphasis
+  --hm-berry-rgb: 109, 36, 59;
+  --hm-on-berry: #fffcf8;
+  --hm-rose: #c26a77; // accents, icons and large text only (3.3:1)
+  --hm-rose-soft: #e7c4c5; // decoration only, never text
+  --hm-line: #e3d8d3;
+  --hm-line-strong: #cdbfba;
+  --hm-sage: #879486;
+  --hm-sage-ink: #4f5d4f; // sage used as text (6:1)
+  --hm-danger: #b33c4a;
+  --hm-on-danger: #fffcf8;
+  --hm-focus: #6d243b;
+  --hm-scrim: rgba(43, 32, 36, 0.45);
+  --hm-shadow: 0 1px 2px rgba(64, 33, 43, 0.05), 0 8px 24px rgba(64, 33, 43, 0.06);
+
+  // Fixed swatches previewing the accent presets (independent of the active accent)
+  --hm-swatch-berry: #6d243b;
+  --hm-swatch-berry-2: #c26a77;
+  --hm-swatch-sage: #45594b;
+  --hm-swatch-sage-2: #879486;
+
+  // Typography
+  --hm-font-display: 'Fraunces Variable', 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --hm-font-ui: 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --hm-text-xs: 0.8125rem; // 13
+  --hm-text-sm: 0.875rem; // 14
+  --hm-text-md: 1rem; // 16
+  --hm-text-lg: 1.125rem; // 18
+  --hm-text-xl: 1.375rem; // 22
+  --hm-text-2xl: 1.75rem; // 28
+  --hm-text-3xl: 2.375rem; // 38
+  --hm-text-hero: clamp(2.75rem, 13vw, 4rem); // counter numerals
+
+  // Spacing (4-point scale)
+  --hm-space-1: 4px;
+  --hm-space-2: 8px;
+  --hm-space-3: 12px;
+  --hm-space-4: 16px;
+  --hm-space-5: 20px;
+  --hm-space-6: 24px;
+  --hm-space-8: 32px;
+  --hm-space-10: 40px;
+  --hm-space-12: 48px;
+  --hm-inset: clamp(20px, 5.5vw, 28px);
+
+  // Shape
+  --hm-radius-card: 22px;
+  --hm-radius-control: 14px;
+  --hm-radius-pill: 999px;
+  --hm-hairline: 1px solid var(--hm-line);
+
+  // Motion
+  --hm-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --hm-duration: 220ms;
+  --hm-tap: 44px;
+}
+
+// Sage accent preset: the primary color becomes a deep sage; contrast stays ≥ 6:1.
+:root[data-accent='sage'] {
+  --hm-berry: #45594b;
+  --hm-berry-rgb: 69, 89, 75;
+  --hm-rose: #7d927f;
+  --hm-rose-soft: #cfd8cc;
+  --hm-focus: #45594b;
+}
+
+:root.hm-dark {
+  --hm-canvas: #171315;
+  --hm-surface: #242023;
+  --hm-surface-muted: #30282d;
+  --hm-ink: #f5eeec;
+  --hm-ink-muted: #c0b0b3;
+  --hm-berry: #d18a9a;
+  --hm-berry-rgb: 209, 138, 154;
+  --hm-on-berry: #1d1518;
+  --hm-rose: #e0a1ac;
+  --hm-rose-soft: #5a3c45;
+  --hm-line: #44383e;
+  --hm-line-strong: #5a4b52;
+  --hm-sage: #a7b49f;
+  --hm-sage-ink: #b7c3af;
+  --hm-danger: #ff8a94;
+  --hm-on-danger: #1d1518;
+  --hm-focus: #e0a1ac;
+  --hm-scrim: rgba(0, 0, 0, 0.6);
+  --hm-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+:root.hm-dark[data-accent='sage'] {
+  --hm-berry: #a7b49f;
+  --hm-berry-rgb: 167, 180, 159;
+  --hm-rose: #bccab4;
+  --hm-rose-soft: #3d4a40;
+  --hm-focus: #bccab4;
+}

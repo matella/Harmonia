@@ -1,0 +1,117 @@
+<ion-header class="ion-no-border">
+  <ion-toolbar>
+    <ion-buttons slot="start"><ion-back-button defaultHref="/tabs/dates" [text]="''" /></ion-buttons>
+    @if (milestone(); as m) {
+      <ion-buttons slot="end">
+        <ion-button [routerLink]="['/milestone', m.id, 'edit']">{{ 'common.edit' | t }}</ion-button>
+      </ion-buttons>
+    }
+  </ion-toolbar>
+</ion-header>
+
+<ion-content>
+  <div class="hm-page">
+    @if (milestone(); as m) {
+      @if (m.photoPath) {
+        <hm-photo-frame class="cover" shape="soft" ratio="16 / 10" [path]="m.photoPath" [alt]="m.title" />
+      }
+      <header class="head">
+        <span class="icon" aria-hidden="true"><ion-icon [name]="icon()" /></span>
+        @if ((m.category | categoryLabel) !== m.title) {
+          <span class="category">{{ m.category | categoryLabel }}</span>
+        }
+        <h1>{{ m.title }}</h1>
+        @if (next(); as n) {
+          <p class="when">
+            @if (n.status === 'today') {
+              <span class="hm-badge hm-badge--today">{{ 'occurrence.status.today' | t }}</span>
+            } @else {
+              <span class="countdown hm-num">{{ n.daysFromToday | relativeDays }}</span>
+            }
+            <span>{{ n.date | hmDate: 'full' }}</span>
+          </p>
+        } @else if (original(); as o) {
+          <p class="when">
+            <span class="hm-badge">{{ 'occurrence.status.past' | t }}</span>
+            <span class="hm-num">{{ o.daysFromToday | relativeDays }}</span>
+          </p>
+        }
+      </header>
+
+      <dl class="facts">
+        <div>
+          <dt>{{ 'milestone.originalDate' | t }}</dt>
+          <dd>
+            {{ m.eventDate | hmDate: 'full' }}
+            @if (m.eventTime) {
+              · {{ m.eventTime | hmTime }}
+            }
+          </dd>
+        </div>
+        <div>
+          <dt>{{ 'milestone.repeatLabel' | t }}</dt>
+          <dd>{{ (m.recurrence === 'yearly' ? 'milestone.repeatYearly' : 'milestone.repeatNone') | t }}</dd>
+        </div>
+        <div>
+          <dt>{{ 'milestone.reminders' | t }}</dt>
+          <dd>
+            @if (rules().length === 0) {
+              {{ 'milestone.noReminders' | t }}
+            } @else {
+              <ul class="reminders">
+                @for (r of rules(); track r.id) {
+                  <li>{{ r.offsetDays | offsetLabel }}, {{ r.localTime | hmTime }}</li>
+                }
+              </ul>
+              @if (reminderState() === 'blocked') {
+                <p class="hm-callout hm-callout--warning blocked">
+                  <ion-icon name="notifications-off-outline" aria-hidden="true" />
+                  <span>{{ (permission() === 'unavailable' ? 'reminders.permission.unavailable' : store.settings().remindersEnabled ? 'reminders.permission.denied' : 'reminders.paused') | t }}</span>
+                </p>
+              }
+            }
+          </dd>
+        </div>
+      </dl>
+
+      @if (m.note) {
+        <p class="note">{{ m.note }}</p>
+      }
+
+      <section class="hm-section" aria-labelledby="memories-heading">
+        <div class="hm-section__head">
+          <h2 id="memories-heading" class="hm-section__title">{{ 'milestone.memories' | t }}</h2>
+          <a class="hm-link-button" routerLink="/memory/new" [queryParams]="{ milestone: m.id }">{{ 'milestone.addMemory' | t }}</a>
+        </div>
+        @if (memories().length > 0) {
+          <ul class="hm-rows">
+            @for (memory of memories(); track memory.id) {
+              <li>
+                <a class="hm-row" [routerLink]="['/memory', memory.id]">
+                  <span class="hm-row__icon" aria-hidden="true"><ion-icon name="image-outline" /></span>
+                  <span class="hm-row__body">
+                    <span class="hm-row__title">{{ memory.title || ('memory.untitled' | t) }}</span>
+                    <span class="hm-row__meta">{{ memory.memoryDate | hmDate: 'medium' }}</span>
+                  </span>
+                  <ion-icon class="hm-row__chevron" name="chevron-forward" aria-hidden="true" />
+                </a>
+              </li>
+            }
+          </ul>
+        }
+      </section>
+
+      <div class="hm-actions">
+        <button type="button" class="hm-btn hm-btn--outline" (click)="togglePin()">
+          <ion-icon [name]="m.isPinned ? 'bookmark' : 'bookmark-outline'" aria-hidden="true" />
+          {{ (m.isPinned ? 'milestone.unpin' : 'milestone.pin') | t }}
+        </button>
+        <button type="button" class="hm-btn hm-btn--danger" (click)="delete()">
+          <ion-icon name="trash-outline" aria-hidden="true" />{{ 'common.delete' | t }}
+        </button>
+      </div>
+    } @else {
+      <hm-empty-state icon="calendar-outline" [title]="'milestone.notFound' | t" />
+    }
+  </div>
+</ion-content>

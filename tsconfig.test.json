@@ -1,0 +1,15 @@
+/* Type-checking config for framework-free domain/persistence tests run by vitest (vitest.config.ts). */
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/test",
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src/**/*.d.ts",
+    "src/app/core/**/*.test.ts",
+    "src/testing/**/*.ts",
+    "vitest.config.ts"
+  ]
+}

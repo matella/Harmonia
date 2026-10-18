@@ -1,0 +1,108 @@
+<ion-header class="ion-no-border">
+  <ion-toolbar>
+    <ion-title>{{ 'timeline.title' | t }}</ion-title>
+    @if (!isEmpty()) {
+      <ion-buttons slot="end">
+        <ion-button (click)="toggleOrder()" [attr.aria-label]="'timeline.order' | t">
+          <ion-icon slot="start" name="swap-vertical-outline" aria-hidden="true" />
+          {{ (order() === 'oldest' ? 'timeline.oldestFirst' : 'timeline.newestFirst') | t }}
+        </ion-button>
+      </ion-buttons>
+    }
+  </ion-toolbar>
+</ion-header>
+
+<ion-content>
+  <div class="hm-page">
+    @if (isEmpty()) {
+      <hm-empty-state
+        icon="git-commit-outline"
+        [title]="'timeline.emptyTitle' | t"
+        [body]="'timeline.emptyBody' | t"
+        [actionLabel]="'home.addDate' | t"
+        (action)="add()"
+      />
+    } @else {
+      <div class="jump">
+        <button type="button" class="hm-link-button" (click)="jumpToLatest()">{{ 'timeline.jumpLatest' | t }}</button>
+      </div>
+      <ol class="timeline">
+        @for (entry of entries(); track entry.key) {
+          @switch (entry.kind) {
+            @case ('start') {
+              <li class="entry entry--marker">
+                <span class="dot dot--start" aria-hidden="true"></span>
+                <div class="entry__body">
+                  <span class="entry__date">{{ entry.date | hmDate: 'long' }}</span>
+                  <span class="entry__title">{{ 'timeline.beginning' | t }}</span>
+                  <span class="entry__meta">{{ 'timeline.beginningBody' | t }}</span>
+                </div>
+              </li>
+            }
+            @case ('today') {
+              <li class="entry entry--today" id="timeline-today" tabindex="-1">
+                <span class="dot dot--today" aria-hidden="true"></span>
+                <div class="entry__body">
+                  <span class="today-label">{{ 'timeline.today' | t }}</span>
+                  <span class="entry__date">{{ entry.date | hmDate: 'full' }}</span>
+                </div>
+              </li>
+            }
+            @case ('milestone') {
+              <li class="entry" [class.entry--future]="entry.status === 'upcoming'">
+                <span class="dot" aria-hidden="true"><ion-icon [name]="icons[entry.milestone.category]" /></span>
+                <a class="entry__body entry__link" [routerLink]="['/milestone', entry.milestone.id]">
+                  <span class="entry__date">
+                    {{ entry.date | hmDate: 'long' }}
+                    <span class="hm-badge" [class.hm-badge--today]="entry.status === 'today'" [class.hm-badge--upcoming]="entry.status === 'upcoming'">
+                      @switch (entry.status) {
+                        @case ('today') {
+                          {{ 'occurrence.status.today' | t }}
+                        }
+                        @case ('upcoming') {
+                          {{ 'occurrence.status.upcoming' | t }}
+                        }
+                        @default {
+                          {{ 'occurrence.status.past' | t }}
+                        }
+                      }
+                    </span>
+                  </span>
+                  <span class="entry__title">{{ entry.milestone.title }}</span>
+                  @if (entry.milestone.note) {
+                    <span class="entry__excerpt">{{ entry.milestone.note }}</span>
+                  }
+                  @if (entry.milestone.recurrence === 'yearly') {
+                    <span class="entry__meta"><ion-icon name="repeat-outline" aria-hidden="true" /> {{ 'occurrence.everyYear' | t }}</span>
+                  }
+                </a>
+              </li>
+            }
+            @case ('memory') {
+              <li class="entry" [class.entry--future]="entry.status === 'upcoming'">
+                <span class="dot dot--memory" aria-hidden="true"><ion-icon name="image-outline" /></span>
+                <a class="entry__body entry__link" [routerLink]="['/memory', entry.memory.id]">
+                  <span class="entry__date">{{ entry.date | hmDate: 'long' }} · {{ 'timeline.memory' | t }}</span>
+                  <span class="entry__title">{{ entry.memory.title || ('memory.untitled' | t) }}</span>
+                  @if (entry.memory.body) {
+                    <span class="entry__excerpt">{{ entry.memory.body }}</span>
+                  }
+                  @if (entry.memory.media.length > 0) {
+                    <span class="thumbs">
+                      @for (m of entry.memory.media.slice(0, 3); track m.id) {
+                        <hm-photo-frame class="thumb" shape="soft" [path]="m.thumbnailPath ?? m.filePath" [emblemSize]="18" />
+                      }
+                      @if (entry.memory.media.length > 3) {
+                        <span class="thumbs__more">{{ 'timeline.photos' | tp: entry.memory.media.length }}</span>
+                      }
+                    </span>
+                  }
+                </a>
+              </li>
+            }
+          }
+        }
+      </ol>
+    }
+  </div>
+</ion-content>

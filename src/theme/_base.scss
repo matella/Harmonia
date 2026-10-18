@@ -1,0 +1,98 @@
+// Global typography, focus, motion and layout primitives.
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  background: var(--hm-canvas);
+  color: var(--hm-ink);
+  font-family: var(--hm-font-ui);
+  font-size: var(--hm-text-md);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  // Inherited by Fraunces Variable: gentle soft terminals, no "wonky" alternates.
+  font-variation-settings: 'SOFT' 50, 'WONK' 0;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--hm-font-display);
+  font-weight: 500;
+  color: var(--hm-ink);
+  margin: 0;
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+  font-variation-settings: 'SOFT' 50, 'WONK' 0;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--hm-berry);
+}
+
+:focus-visible {
+  outline: 2px solid var(--hm-focus);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.hm-num {
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.hm-visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/** Centered reading column for tablets and landscape. */
+.hm-page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding-bottom: var(--hm-space-12);
+}
+
+.hm-muted {
+  color: var(--hm-ink-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.hm-reduced-motion *,
+.hm-reduced-motion *::before,
+.hm-reduced-motion *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+@keyframes hm-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

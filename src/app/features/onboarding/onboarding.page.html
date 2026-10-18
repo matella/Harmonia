@@ -1,0 +1,145 @@
+<ion-content [fullscreen]="true">
+  <div class="hm-page onboarding">
+    @switch (step()) {
+      @case ('welcome') {
+        <section class="welcome">
+          <div class="welcome__mark">
+            <hm-emblem [size]="72" />
+          </div>
+          <h1 class="wordmark">{{ 'app.name' | t }}</h1>
+          <p class="tagline">{{ 'onboarding.welcomeTitle' | t }}</p>
+          <p class="lead">{{ 'onboarding.welcomeBody' | t }}</p>
+          <div class="actions">
+            <button type="button" class="hm-btn hm-btn--block" (click)="next()">{{ 'onboarding.begin' | t }}</button>
+          </div>
+        </section>
+      }
+
+      @case ('start') {
+        <section class="step" aria-labelledby="step-title">
+          <header class="step__head">
+            <button type="button" class="hm-btn hm-btn--quiet back" (click)="back()">{{ 'common.back' | t }}</button>
+            <span class="progress">{{ 'onboarding.progress' | t: { step: stepNumber(), total: total } }}</span>
+          </header>
+          <h1 id="step-title">{{ 'onboarding.startTitle' | t }}</h1>
+          <p class="lead">{{ 'onboarding.startBody' | t }}</p>
+          <div class="hm-form">
+            <hm-date-field
+              [label]="'onboarding.startDateLabel' | t"
+              [(value)]="startDate"
+              [max]="today()"
+              [error]="startDateError()"
+            />
+            <div class="hm-switch-row">
+              <label class="hm-switch-row__text" for="with-time">
+                {{ 'onboarding.addTime' | t }}
+                <span class="hm-switch-row__hint">{{ 'onboarding.addTimeHint' | t }}</span>
+              </label>
+              <ion-toggle id="with-time" [checked]="withTime()" (ionChange)="withTime.set($event.detail.checked)" />
+            </div>
+            @if (withTime()) {
+              <hm-date-field
+                mode="time"
+                [label]="'onboarding.startTimeLabel' | t"
+                [(value)]="startTime"
+                [error]="startTimeError()"
+              />
+            }
+          </div>
+          <div class="actions">
+            <button type="button" class="hm-btn hm-btn--block" (click)="next()">{{ 'common.continue' | t }}</button>
+          </div>
+        </section>
+      }
+
+      @case ('partner') {
+        <section class="step" aria-labelledby="step-title">
+          <header class="step__head">
+            <button type="button" class="hm-btn hm-btn--quiet back" (click)="back()">{{ 'common.back' | t }}</button>
+            <span class="progress">{{ 'onboarding.progress' | t: { step: stepNumber(), total: total } }}</span>
+          </header>
+          <h1 id="step-title">{{ 'onboarding.partnerTitle' | t }}</h1>
+          <p class="lead">{{ 'onboarding.partnerBody' | t }}</p>
+          <div class="hm-form">
+            <div class="hm-field">
+              <label class="hm-field__label" for="partner-name">
+                {{ 'onboarding.nameLabel' | t }} <span class="hm-field__optional">{{ 'common.optional' | t }}</span>
+              </label>
+              <input
+                id="partner-name"
+                class="hm-input"
+                type="text"
+                autocomplete="off"
+                autocapitalize="words"
+                maxlength="60"
+                [placeholder]="'onboarding.namePlaceholder' | t"
+                [value]="name()"
+                [attr.aria-invalid]="nameError() ? 'true' : null"
+                (input)="name.set($any($event.target).value)"
+              />
+              @if (nameError()) {
+                <span class="hm-field__error" role="alert">{{ nameError() }}</span>
+              }
+            </div>
+            <div class="hm-field">
+              <span class="hm-field__label">
+                {{ 'onboarding.photoLabel' | t }} <span class="hm-field__optional">{{ 'common.optional' | t }}</span>
+              </span>
+              <div class="photo-pick">
+                <hm-photo-frame class="photo-pick__frame" shape="round" [src]="photo.url()" [alt]="'home.photoAlt' | t" [emblemSize]="28" />
+                <div class="photo-pick__actions">
+                  <button type="button" class="hm-btn hm-btn--outline" (click)="choosePhoto()">
+                    <ion-icon name="image-outline" aria-hidden="true" />
+                    {{ (photo.url() ? 'photo.change' : 'photo.choose') | t }}
+                  </button>
+                  @if (photo.url()) {
+                    <button type="button" class="hm-btn hm-btn--quiet" (click)="photo.clear()">{{ 'photo.remove' | t }}</button>
+                  }
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="actions">
+            <button type="button" class="hm-btn hm-btn--block" (click)="next()">{{ 'common.continue' | t }}</button>
+            @if (!name() && !photo.url()) {
+              <button type="button" class="hm-btn hm-btn--quiet hm-btn--block" (click)="next()">{{ 'common.skip' | t }}</button>
+            }
+          </div>
+        </section>
+      }
+
+      @case ('anniversary') {
+        <section class="step" aria-labelledby="step-title">
+          <header class="step__head">
+            <button type="button" class="hm-btn hm-btn--quiet back" (click)="back()">{{ 'common.back' | t }}</button>
+            <span class="progress">{{ 'onboarding.progress' | t: { step: stepNumber(), total: total } }}</span>
+          </header>
+          <h1 id="step-title">{{ 'onboarding.milestoneTitle' | t }}</h1>
+          <p class="lead">{{ 'onboarding.milestoneBody' | t }}</p>
+          <div class="preview hm-card">
+            <span class="preview__icon" aria-hidden="true"><ion-icon name="gift-outline" /></span>
+            <span>
+              <span class="preview__title">{{ 'onboarding.anniversaryTitle' | t }}</span>
+              <span class="preview__meta">{{ startDate() | hmDate: 'monthDay' }} · {{ 'occurrence.everyYear' | t }}</span>
+            </span>
+          </div>
+          <div class="hm-switch-row">
+            <label class="hm-switch-row__text" for="remind">
+              {{ 'onboarding.remindMe' | t }}
+              <span class="hm-switch-row__hint">{{ 'onboarding.remindHint' | t }}</span>
+            </label>
+            <ion-toggle id="remind" [checked]="remind()" (ionChange)="remind.set($event.detail.checked)" />
+          </div>
+          <div class="actions">
+            <button type="button" class="hm-btn hm-btn--block" [disabled]="saving()" (click)="finish(true)">
+              {{ 'onboarding.addAnniversary' | t }}
+            </button>
+            <button type="button" class="hm-btn hm-btn--quiet hm-btn--block" [disabled]="saving()" (click)="finish(false)">
+              {{ 'onboarding.finish' | t }}
+            </button>
+          </div>
+        </section>
+      }
+    }
+  </div>
+</ion-content>

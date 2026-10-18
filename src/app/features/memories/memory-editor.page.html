@@ -1,0 +1,113 @@
+<ion-header class="ion-no-border">
+  <ion-toolbar>
+    <ion-buttons slot="start"><ion-back-button defaultHref="/tabs/memories" [text]="'common.cancel' | t" icon="" /></ion-buttons>
+    <ion-title>{{ (isEdit() ? 'memory.editTitle' : 'memory.newTitle') | t }}</ion-title>
+    <ion-buttons slot="end">
+      <ion-button [strong]="true" [disabled]="saving()" (click)="save()">{{ 'common.save' | t }}</ion-button>
+    </ion-buttons>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content>
+  <div class="hm-page">
+    <form class="hm-form" (submit)="save(); $event.preventDefault()" novalidate>
+      <div class="hm-field">
+        <span class="hm-field__label">{{ 'memory.photosLabel' | t }}</span>
+        <ul class="photos">
+          @for (m of keptMedia(); track m.id; let i = $index) {
+            <li class="photo">
+              <hm-photo-frame shape="soft" [path]="m.thumbnailPath ?? m.filePath" [alt]="'memory.photoAlt' | t: { index: i + 1, total: photoCount() }" />
+              <button type="button" class="remove" [attr.aria-label]="'memory.removePhoto' | t: { index: i + 1 }" (click)="removeExisting(m.id)">
+                <ion-icon name="close-outline" aria-hidden="true" />
+              </button>
+            </li>
+          }
+          @for (image of added(); track image.key; let i = $index) {
+            <li class="photo">
+              <hm-photo-frame shape="soft" [src]="image.url" [alt]="'memory.photoAlt' | t: { index: keptMedia().length + i + 1, total: photoCount() }" />
+              <button
+                type="button"
+                class="remove"
+                [attr.aria-label]="'memory.removePhoto' | t: { index: keptMedia().length + i + 1 }"
+                (click)="removeAdded(image.key)"
+              >
+                <ion-icon name="close-outline" aria-hidden="true" />
+              </button>
+            </li>
+          }
+          <li>
+            <button type="button" class="add-photo" [disabled]="picking()" (click)="addPhotos()">
+              @if (picking()) {
+                <ion-spinner name="crescent" />
+              } @else {
+                <ion-icon name="add" aria-hidden="true" />
+              }
+              <span>{{ 'memory.addPhotos' | t }}</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <div class="hm-field">
+        <label class="hm-field__label" for="mem-title">
+          {{ 'memory.titleLabel' | t }} <span class="hm-field__optional">{{ 'common.optional' | t }}</span>
+        </label>
+        <input
+          id="mem-title"
+          class="hm-input"
+          type="text"
+          maxlength="100"
+          autocapitalize="sentences"
+          [placeholder]="'memory.titlePlaceholder' | t"
+          [value]="title()"
+          [attr.aria-invalid]="errors().title ? 'true' : null"
+          (input)="title.set($any($event.target).value)"
+        />
+        @if (errors().title) {
+          <span class="hm-field__error" role="alert">{{ errors().title }}</span>
+        }
+      </div>
+
+      <div class="hm-field">
+        <label class="hm-field__label" for="mem-body">{{ 'memory.bodyLabel' | t }}</label>
+        <textarea
+          id="mem-body"
+          class="hm-input body"
+          maxlength="5000"
+          [placeholder]="'memory.bodyPlaceholder' | t"
+          [value]="body()"
+          [attr.aria-invalid]="errors().body ? 'true' : null"
+          [attr.aria-describedby]="errors().body ? 'mem-body-error' : null"
+          (input)="body.set($any($event.target).value)"
+        ></textarea>
+        @if (errors().body) {
+          <span id="mem-body-error" class="hm-field__error" role="alert">
+            <ion-icon name="alert-circle-outline" aria-hidden="true" />{{ errors().body }}
+          </span>
+        }
+      </div>
+
+      <hm-date-field [label]="'memory.dateLabel' | t" [(value)]="memoryDate" [error]="errors().memoryDate" />
+
+      <div class="hm-field">
+        <label class="hm-field__label" for="mem-link">
+          {{ 'memory.linkLabel' | t }} <span class="hm-field__optional">{{ 'common.optional' | t }}</span>
+        </label>
+        <select id="mem-link" class="hm-input" [value]="milestoneId() ?? ''" (change)="onLinkChange($any($event.target).value)">
+          <option value="">{{ 'memory.noLink' | t }}</option>
+          @for (m of milestones(); track m.id) {
+            <option [value]="m.id" [selected]="m.id === milestoneId()">{{ m.title }}</option>
+          }
+        </select>
+      </div>
+
+      <button type="submit" class="hm-btn hm-btn--block" [disabled]="saving()">
+        @if (saving()) {
+          <ion-spinner name="crescent" />{{ 'memory.processing' | t }}
+        } @else {
+          {{ 'common.save' | t }}
+        }
+      </button>
+    </form>
+  </div>
+</ion-content>
