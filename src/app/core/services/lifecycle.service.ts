@@ -8,6 +8,7 @@ import { applyPreferredTextScale } from '../platform/text-scale';
 import { AppStore } from '../state/app-store';
 import { routeForLink } from './deep-links';
 import { SyncService } from './sync.service';
+import { UsageService } from './usage.service';
 import { WidgetService } from './widget.service';
 
 /**
@@ -23,6 +24,7 @@ export class LifecycleService {
   private readonly store = inject(AppStore);
   private readonly sync = inject(SyncService);
   private readonly widgets = inject(WidgetService);
+  private readonly usage = inject(UsageService);
   private readonly router = inject(Router);
   private readonly zone = inject(NgZone);
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -73,6 +75,8 @@ export class LifecycleService {
   private onPause(): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    // Send queued usage events (if the user opted in) before the OS may suspend us.
+    void this.usage.flush();
   }
 
   private scheduleTick(): void {

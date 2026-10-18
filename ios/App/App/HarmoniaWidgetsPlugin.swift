@@ -14,6 +14,7 @@ public class HarmoniaWidgetsPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "writeSnapshot", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "reloadAll", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "buildInfo", returnType: CAPPluginReturnPromise),
     ]
 
     static let appGroup = "group.harmonia.companion"
@@ -38,6 +39,15 @@ public class HarmoniaWidgetsPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func reloadAll(_ call: CAPPluginCall) {
         WidgetCenter.shared.reloadAllTimelines()
         call.resolve()
+    }
+
+    /// Whether this is a debug build, so usage events from test builds are flagged.
+    @objc func buildInfo(_ call: CAPPluginCall) {
+        #if DEBUG
+        call.resolve(["debuggable": true])
+        #else
+        call.resolve(["debuggable": false])
+        #endif
     }
 
     /// Minimal validation; the full contract is parsed by HarmoniaCore in the extensions.

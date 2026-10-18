@@ -4,6 +4,7 @@ import { MediaStorageService } from '../platform/media-storage.service';
 import { DatabaseService } from './database.service';
 import { ReminderService } from './reminder.service';
 import { SyncService } from './sync.service';
+import { UsageService } from './usage.service';
 import { WidgetService } from './widget.service';
 
 export interface DeletionReport {
@@ -23,9 +24,12 @@ export class DataDeletionService {
   private readonly reminders = inject(ReminderService);
   private readonly widgets = inject(WidgetService);
   private readonly sync = inject(SyncService);
+  private readonly usage = inject(UsageService);
 
   async deleteEverything(): Promise<DeletionReport> {
     const report: DeletionReport = { remindersCancelled: true, widgetsCleared: true };
+    // Nothing queued may be sent afterwards; deleting settings also turns sharing off.
+    this.usage.discard();
     try {
       await this.reminders.cancelAll();
     } catch {

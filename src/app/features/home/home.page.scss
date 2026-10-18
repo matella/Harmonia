@@ -70,3 +70,28 @@
 .quick-add {
   margin-top: var(--hm-space-10);
 }
+
+.usage-prompt {
+  margin-top: var(--hm-space-8);
+  padding: var(--hm-space-5);
+}
+
+.usage-prompt__title {
+  margin: 0;
+  font-family: var(--hm-font-display);
+  font-size: var(--hm-text-lg);
+  font-weight: 500;
+}
+
+.usage-prompt__body {
+  margin: var(--hm-space-2) 0 var(--hm-space-4);
+  color: var(--hm-ink-muted);
+  font-size: var(--hm-text-sm);
+  line-height: 1.55;
+}
+
+.usage-prompt__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hm-space-2);
+}

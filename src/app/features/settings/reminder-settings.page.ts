@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } 
 import { IonContent, IonIcon, IonSpinner, IonToggle } from '@ionic/angular';
 
 import { MAX_PENDING_NOTIFICATIONS } from '../../core/domain/reminder-planner';
+import { UsageService } from '../../core/services/usage.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { NoticeService } from '../../core/services/notice.service';
 import { ReminderService } from '../../core/services/reminder.service';
@@ -114,6 +115,7 @@ export class ReminderSettingsPage implements OnInit {
   private readonly service = inject(SettingsService);
   private readonly notice = inject(NoticeService);
   protected readonly reminders = inject(ReminderService);
+  private readonly usage = inject(UsageService);
 
   protected readonly settings = this.store.settings;
   protected readonly permission = this.reminders.permission;
@@ -157,6 +159,7 @@ export class ReminderSettingsPage implements OnInit {
     this.checking.set(true);
     try {
       const report = await this.reminders.reconcile();
+      this.usage.track({ name: 'reminders_rechecked', props: { repaired: report.stale > 0 || report.missing > 0 } });
       if (report.permission === 'unavailable') this.result.set(this.t.t('reminders.recheckUnavailable'));
       else if (report.permission !== 'granted') this.result.set(this.t.t('reminders.recheckDenied'));
       else if (report.stale > 0 || report.missing > 0) {

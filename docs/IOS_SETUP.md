@@ -22,7 +22,7 @@ Already done in the repository:
 - `SceneDelegate` and `Main.storyboard` use `MainViewController`.
 - `App.entitlements` declares the App Group `group.harmonia.companion`; `CODE_SIGN_ENTITLEMENTS` is set for Debug/Release.
 - `Info.plist`: `harmonia://` URL scheme, photo/camera usage strings, Handoff activity `harmonia.companion.open`, `arm64`.
-- `PrivacyInfo.xcprivacy` (no tracking, no collected data, UserDefaults reasons).
+- `PrivacyInfo.xcprivacy` (no tracking; opt-in anonymous Product Interaction declared as collected, not linked; UserDefaults reasons).
 
 Steps:
 1. Open `ios/App/App.xcodeproj`. Select the **App** target › Signing & Capabilities › choose your team.

@@ -442,6 +442,8 @@ export const NL: EnCatalog = {
   'privacy.title': 'Privacy en gegevens',
   'privacy.statement':
     'Alles wat je aan Harmonia toevoegt — datums, notities en foto’s — wordt alleen op dit toestel bewaard. Geen account, geen synchronisatie en geen tracking. Niets verlaat je toestel, tenzij je het zelf exporteert.',
+  'privacy.statementWithUsage':
+    'Alles wat je aan Harmonia toevoegt — datums, notities en foto’s — wordt alleen op dit toestel bewaard. Geen account en geen synchronisatie. Anoniem gebruik delen staat uit tot je het hieronder aanzet, en het bevat nooit iets wat je schrijft of bewaart.',
   'privacy.export': 'Je gegevens exporteren',
   'privacy.exportHint': 'Maakt een ZIP-bestand met je datums, herinneringen, instellingen en foto’s dat je kunt bewaren of delen.',
   'privacy.exportAction': 'Exporteren',
@@ -460,6 +462,17 @@ export const NL: EnCatalog = {
   'privacy.deleteDone': 'Alle gegevens zijn verwijderd.',
   'privacy.deletePartial': 'Je gegevens zijn verwijderd. Sommige meldingen of widgets hebben misschien even nodig om te verdwijnen.',
   'privacy.deleteFailed': 'Je gegevens konden niet worden verwijderd. Probeer het opnieuw.',
+
+  // Anonymous usage (opt-in; shown only when a destination is configured)
+  'usage.title': 'Anoniem gebruik',
+  'usage.toggle': 'Anoniem gebruik delen',
+  'usage.toggleHint':
+    'Stuurt welke schermen en functies worden gebruikt, met de appversie en taal, naar {destination}. Nooit namen, datums, titels, notities of foto’s, en geen kenmerk dat de ene keer openen aan de volgende koppelt.',
+  'usage.promptTitle': 'Help je Harmonia beter maken?',
+  'usage.promptBody':
+    'Je kunt anoniem gebruik delen: welke schermen en functies worden gebruikt, nooit je namen, datums, notities of foto’s. Je kunt dit altijd wijzigen bij Privacy en gegevens.',
+  'usage.promptAccept': 'Anoniem gebruik delen',
+  'usage.promptDecline': 'Nee, bedankt',
 
   // About
   'about.title': 'Over Harmonia',

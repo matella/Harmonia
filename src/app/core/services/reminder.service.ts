@@ -7,6 +7,7 @@ import { createReminderCopy } from '../i18n/reminder-copy';
 import type { NotificationPermission } from '../platform/notification-port';
 import { AppStore } from '../state/app-store';
 import { I18nService } from './i18n.service';
+import { UsageService } from './usage.service';
 import { CLOCK, NOTIFICATION_PORT } from './tokens';
 
 /**
@@ -20,6 +21,7 @@ export class ReminderService {
   private readonly store = inject(AppStore);
   private readonly clock = inject(CLOCK);
   private readonly copy = createReminderCopy(inject(I18nService).translator);
+  private readonly usage = inject(UsageService);
 
   readonly permission = signal<NotificationPermission>('prompt');
   readonly lastReport = signal<ReconcileReport | null>(null);
@@ -41,6 +43,7 @@ export class ReminderService {
     if (current !== 'prompt') return current;
     const result = await this.port.requestPermission();
     this.permission.set(result);
+    if (result === 'granted' || result === 'denied') this.usage.track({ name: 'notification_permission', props: { result } });
     return result;
   }
 

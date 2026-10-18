@@ -14,11 +14,14 @@ export interface HarmoniaWidgetsPlugin {
   writeSnapshot(options: { json: string }): Promise<void>;
   /** Re-requests a refresh without changing data (e.g. after a day boundary). */
   reloadAll(): Promise<void>;
+  /** Native build flavour; used only to flag usage events from test builds. */
+  buildInfo(): Promise<{ debuggable: boolean }>;
 }
 
 const noop: HarmoniaWidgetsPlugin = {
   writeSnapshot: async () => undefined,
   reloadAll: async () => undefined,
+  buildInfo: async () => ({ debuggable: true }),
 };
 
 export const HarmoniaWidgets = registerPlugin<HarmoniaWidgetsPlugin>('HarmoniaWidgets', {

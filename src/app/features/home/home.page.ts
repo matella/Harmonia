@@ -18,6 +18,7 @@ import { CATEGORY_ICONS, TOGETHER_ICON } from '../../shared/icons';
 import { PhotoFrameComponent } from '../../shared/components/photo-frame.component';
 import { I18N_PIPES } from '../../shared/pipes/i18n.pipes';
 import { ReminderService } from '../../core/services/reminder.service';
+import { UsageService } from '../../core/services/usage.service';
 import { reminderStateFor } from '../../shared/utilities/reminder-state';
 
 const FORMAT_CYCLE: CounterFormat[] = ['calendar', 'days', 'weeks'];
@@ -50,6 +51,7 @@ export class HomePage {
   private readonly reminders = inject(ReminderService);
   private readonly router = inject(Router);
   private readonly sheets = inject(ActionSheetController);
+  protected readonly usage = inject(UsageService);
 
   protected readonly profile = this.store.profile;
   protected readonly format = computed(() => this.store.settings().counterFormat);
@@ -117,6 +119,11 @@ export class HomePage {
     await sheet.present();
     const { data } = await sheet.onDidDismiss<string>();
     if (data) await this.router.navigateByUrl(data);
+  }
+
+  /** Either answer is final; the choice stays changeable in Privacy and data. */
+  protected async answerUsage(share: boolean): Promise<void> {
+    await this.settings.update({ usageSharing: share, usagePromptAnswered: true }).catch(() => undefined);
   }
 
   protected addDate(): void {

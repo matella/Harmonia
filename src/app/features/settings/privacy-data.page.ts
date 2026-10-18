@@ -1,26 +1,42 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { NavController } from '@ionic/angular';
-import { IonContent, IonIcon, IonSpinner } from '@ionic/angular';
+import { IonContent, IonIcon, IonSpinner, IonToggle } from '@ionic/angular';
 
 import { DataDeletionService } from '../../core/services/data-deletion.service';
 import { DataExportService } from '../../core/services/data-export.service';
+import { UsageService } from '../../core/services/usage.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { NoticeService } from '../../core/services/notice.service';
+import { SettingsService } from '../../core/services/settings.service';
+import { AppStore } from '../../core/state/app-store';
 import { I18N_PIPES } from '../../shared/pipes/i18n.pipes';
 import { ConfirmService } from '../../shared/services/confirm.service';
 import { SettingsHeaderComponent } from './settings-header.component';
 
 @Component({
   selector: 'hm-privacy-data',
-  imports: [IonContent, IonIcon, IonSpinner, SettingsHeaderComponent, ...I18N_PIPES],
+  imports: [IonContent, IonIcon, IonSpinner, IonToggle, SettingsHeaderComponent, ...I18N_PIPES],
   template: `
     <hm-settings-header [title]="'privacy.title' | t" />
     <ion-content>
       <div class="hm-page">
         <p class="statement">
           <ion-icon name="lock-closed-outline" aria-hidden="true" />
-          <span>{{ 'privacy.statement' | t }}</span>
+          <span>{{ (usage.available ? 'privacy.statementWithUsage' : 'privacy.statement') | t }}</span>
         </p>
+
+        @if (usage.available) {
+          <section class="hm-section" aria-labelledby="usage-heading">
+            <h2 id="usage-heading" class="hm-section__title">{{ 'usage.title' | t }}</h2>
+            <div class="hm-switch-row">
+              <label class="hm-switch-row__text" for="p-usage">
+                {{ 'usage.toggle' | t }}
+                <span class="hm-switch-row__hint">{{ 'usage.toggleHint' | t: { destination: usage.destination } }}</span>
+              </label>
+              <ion-toggle id="p-usage" [checked]="usage.enabled()" (ionChange)="setUsage($event.detail.checked)" />
+            </div>
+          </section>
+        }
 
         <section class="hm-section" aria-labelledby="export-heading">
           <h2 id="export-heading" class="hm-section__title">{{ 'privacy.export' | t }}</h2>
@@ -79,6 +95,9 @@ export class PrivacyDataPage {
   private readonly confirm = inject(ConfirmService);
   private readonly notice = inject(NoticeService);
   private readonly nav = inject(NavController);
+  protected readonly usage = inject(UsageService);
+  private readonly settings = inject(SettingsService);
+  private readonly store = inject(AppStore);
 
   protected readonly exporting = signal(false);
   protected readonly busy = signal(false);
@@ -90,6 +109,7 @@ export class PrivacyDataPage {
     this.exportStatus.set('');
     try {
       const result = await this.exporter.exportAndShare(this.t.t('privacy.exportShareTitle'));
+      if (result.shared) this.usage.track({ name: 'export_created', props: { complete: result.document.mediaComplete } });
       if (!result.shared) this.exportStatus.set(this.t.t('privacy.exportCancelled'));
       else if (!result.document.mediaComplete) this.exportStatus.set(this.t.t('privacy.exportIncomplete'));
       else this.exportStatus.set(this.t.t('privacy.exportDone', { name: result.fileName }));
@@ -119,6 +139,16 @@ export class PrivacyDataPage {
       await this.notice.show(this.t.t('privacy.deleteFailed'), 'warning');
     } finally {
       this.busy.set(false);
+    }
+  }
+
+  /** Answers the one-time invitation too, so it never appears after a choice here. */
+  protected async setUsage(enabled: boolean): Promise<void> {
+    if (enabled === this.store.settings().usageSharing && this.store.settings().usagePromptAnswered) return;
+    try {
+      await this.settings.update({ usageSharing: enabled, usagePromptAnswered: true });
+    } catch {
+      await this.notice.show(this.t.t('settings.saveFailed'), 'warning');
     }
   }
 }

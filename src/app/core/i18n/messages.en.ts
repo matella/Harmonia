@@ -438,6 +438,8 @@ export const EN = {
   'privacy.title': 'Privacy and data',
   'privacy.statement':
     'Everything you add to Harmonia — dates, notes and photos — is stored only on this device. There is no account, no sync and no tracking. Nothing leaves your device unless you export it yourself.',
+  'privacy.statementWithUsage':
+    'Everything you add to Harmonia — dates, notes and photos — is stored only on this device. There is no account and no sync. Anonymous usage sharing is off unless you turn it on below, and it never includes anything you write or save.',
   'privacy.export': 'Export your data',
   'privacy.exportHint': 'Creates a ZIP file with your dates, memories, settings and photos that you can save or share.',
   'privacy.exportAction': 'Export',
@@ -456,6 +458,17 @@ export const EN = {
   'privacy.deleteDone': 'All data deleted.',
   'privacy.deletePartial': 'Your data was deleted. Some reminders or widgets may take a moment to clear.',
   'privacy.deleteFailed': 'Your data couldn’t be deleted. Try again.',
+
+  // Anonymous usage (opt-in; shown only when a destination is configured)
+  'usage.title': 'Anonymous usage',
+  'usage.toggle': 'Share anonymous usage',
+  'usage.toggleHint':
+    'Sends which screens and features are used, with the app version and language, to {destination}. Never names, dates, titles, notes or photos, and no identifier that links one app launch to the next.',
+  'usage.promptTitle': 'Help shape Harmonia?',
+  'usage.promptBody':
+    'You can share anonymous usage: which screens and features are used, never your names, dates, notes or photos. You can change this at any time in Privacy and data.',
+  'usage.promptAccept': 'Share anonymous usage',
+  'usage.promptDecline': 'No thanks',
 
   // About
   'about.title': 'About Harmonia',

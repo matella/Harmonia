@@ -9,6 +9,7 @@ import { LifecycleService } from './lifecycle.service';
 import { thumbnailSiblings } from './profile.service';
 import { SyncService } from './sync.service';
 import { ThemeService } from './theme.service';
+import { UsageService } from './usage.service';
 
 /**
  * Cold-start sequence: open + migrate the database, load state, then (off the critical
@@ -23,6 +24,7 @@ export class BootstrapService {
   private readonly lifecycle = inject(LifecycleService);
   private readonly media = inject(MediaStorageService);
   private readonly i18n = inject(I18nService);
+  private readonly usage = inject(UsageService);
 
   constructor() {
     inject(ThemeService); // applies the theme as soon as settings load
@@ -52,6 +54,7 @@ export class BootstrapService {
 
   private async afterStart(): Promise<void> {
     await this.sync.runSideEffects(true);
+    this.usage.trackStart();
     try {
       const referenced = await this.db.repos.memories.referencedFiles();
       const withThumbs = new Set([...referenced].flatMap(thumbnailSiblings));

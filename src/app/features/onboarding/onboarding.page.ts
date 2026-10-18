@@ -10,6 +10,7 @@ import { MilestoneService } from '../../core/services/milestone.service';
 import { NoticeService } from '../../core/services/notice.service';
 import { ProfileService } from '../../core/services/profile.service';
 import { CLOCK } from '../../core/services/tokens';
+import { UsageService } from '../../core/services/usage.service';
 import { AppStore } from '../../core/state/app-store';
 import { DateFieldComponent } from '../../shared/components/date-field.component';
 import { EmblemComponent } from '../../shared/components/emblem.component';
@@ -42,6 +43,7 @@ export class OnboardingPage implements OnDestroy {
   private readonly media = inject(MediaStorageService);
   private readonly notice = inject(NoticeService);
   private readonly router = inject(Router);
+  private readonly usage = inject(UsageService);
 
   protected readonly step = signal<Step>('welcome');
   protected readonly stepNumber = computed(() => STEPS.indexOf(this.step()));
@@ -136,6 +138,17 @@ export class OnboardingPage implements OnDestroy {
         });
         if (milestone.ok) await this.milestones.create(milestone.value);
       }
+      this.usage.markOnboardedThisSession();
+      this.usage.track({
+        name: 'onboarding_completed',
+        props: {
+          start_time: result.value.startTime !== null,
+          name: result.value.displayName !== null,
+          photo: blob !== null,
+          anniversary: addAnniversary,
+          reminder: addAnniversary && this.remind(),
+        },
+      });
       await this.router.navigateByUrl('/tabs/home', { replaceUrl: true });
     } catch {
       await this.notice.show(this.t.t('onboarding.saveFailed'), 'warning');

@@ -34,3 +34,12 @@ Nothing here is complete until checked on real builds. Items marked ✅ were ver
 
 - [ ] Native-speaker review of French and Dutch (app catalogs, Android `values-fr`/`values-nl`, iOS `.xcstrings` and `InfoPlist.xcstrings`).
 - [ ] Store listings and screenshots in English, French and Dutch.
+
+## Usage analytics (only if `USAGE_CONFIG` is set)
+
+- [ ] Create the Aptabase app (EU region, or self-hosted) and set `src/app/core/platform/usage-config.ts`; use a separate app/key for test builds.
+- [ ] Verify with the real key that events arrive (CORS preflight from `https://localhost` and `capacitor://localhost`).
+- [ ] **Privacy policy URL** (required by both stores once any data is collected) describing the events, the destination, IP/User-Agent handling by the server, and that sharing is opt-in. Blocked: no domain/website yet.
+- [ ] App Store privacy label: Usage Data → Product Interaction, not linked to the user, not used for tracking, purpose Analytics (matches `PrivacyInfo.xcprivacy`).
+- [ ] Google Play Data safety: App activity → App interactions, collected, optional, not shared, encrypted in transit, not linked to an identity.
+- [ ] If shipping without usage sharing, set `USAGE_CONFIG = null` and remove the Product Interaction entry from `PrivacyInfo.xcprivacy`.

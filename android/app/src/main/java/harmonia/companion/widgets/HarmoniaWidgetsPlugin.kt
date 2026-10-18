@@ -1,5 +1,7 @@
 package harmonia.companion.widgets
 
+import android.content.pm.ApplicationInfo
+import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
@@ -29,5 +31,12 @@ class HarmoniaWidgetsPlugin : Plugin() {
     fun reloadAll(call: PluginCall) {
         WidgetUpdater.updateAll(context)
         call.resolve()
+    }
+
+    /** Whether this is a debuggable build, so usage events from test builds are flagged. */
+    @PluginMethod
+    fun buildInfo(call: PluginCall) {
+        val debuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        call.resolve(JSObject().put("debuggable", debuggable))
     }
 }

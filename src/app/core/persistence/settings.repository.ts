@@ -29,6 +29,8 @@ const VALIDATORS: Validators = {
   togetherDays: isBoolean,
   togetherReminders: isBoolean,
   language: oneOf('system', 'en', 'fr', 'nl'),
+  usageSharing: isBoolean,
+  usagePromptAnswered: isBoolean,
 };
 
 /**

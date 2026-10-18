@@ -442,6 +442,8 @@ export const FR: EnCatalog = {
   'privacy.title': 'Confidentialité et données',
   'privacy.statement':
     'Tout ce que vous ajoutez à Harmonia — dates, notes et photos — est stocké uniquement sur cet appareil. Pas de compte, pas de synchronisation, pas de suivi. Rien ne quitte votre appareil, sauf si vous l’exportez vous-même.',
+  'privacy.statementWithUsage':
+    'Tout ce que vous ajoutez à Harmonia — dates, notes et photos — est stocké uniquement sur cet appareil. Pas de compte, pas de synchronisation. Le partage anonyme de l’utilisation est désactivé tant que vous ne l’activez pas ci-dessous, et il n’inclut jamais ce que vous écrivez ou enregistrez.',
   'privacy.export': 'Exporter vos données',
   'privacy.exportHint':
     'Crée un fichier ZIP avec vos dates, souvenirs, réglages et photos, que vous pouvez enregistrer ou partager.',
@@ -462,6 +464,17 @@ export const FR: EnCatalog = {
   'privacy.deleteDone': 'Toutes les données ont été supprimées.',
   'privacy.deletePartial': 'Vos données ont été supprimées. Certains rappels ou widgets peuvent mettre un instant à disparaître.',
   'privacy.deleteFailed': 'Vos données n’ont pas pu être supprimées. Réessayez.',
+
+  // Anonymous usage (opt-in; shown only when a destination is configured)
+  'usage.title': 'Utilisation anonyme',
+  'usage.toggle': 'Partager l’utilisation anonyme',
+  'usage.toggleHint':
+    'Envoie les écrans et fonctions utilisés, avec la version de l’app et la langue, à {destination}. Jamais de prénoms, de dates, de titres, de notes ni de photos, et aucun identifiant qui relie une ouverture de l’app à la suivante.',
+  'usage.promptTitle': 'Aider à améliorer Harmonia\u00a0?',
+  'usage.promptBody':
+    'Vous pouvez partager une utilisation anonyme\u00a0: les écrans et fonctions utilisés, jamais vos prénoms, dates, notes ou photos. Vous pouvez changer d’avis à tout moment dans Confidentialité et données.',
+  'usage.promptAccept': 'Partager l’utilisation anonyme',
+  'usage.promptDecline': 'Non merci',
 
   // About
   'about.title': 'À propos d’Harmonia',

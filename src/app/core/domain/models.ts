@@ -118,6 +118,10 @@ export interface AppSettings {
   /** Reminders for together milestones, using the default reminder time and offsets. */
   togetherReminders: boolean;
   language: LanguagePreference;
+  /** Opt-in anonymous usage sharing; off unless the user turns it on. */
+  usageSharing: boolean;
+  /** The one-time invitation to share usage was answered (either way). */
+  usagePromptAnswered: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
@@ -136,6 +140,8 @@ export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   togetherDays: true,
   togetherReminders: false,
   language: 'system',
+  usageSharing: false,
+  usagePromptAnswered: false,
 });
 
 /** Offsets offered as one-tap choices; any whole number 0–365 is accepted. */

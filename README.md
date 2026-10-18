@@ -1,6 +1,6 @@
 # Harmonia
 
-*Our time, together.* A private, offline-first relationship companion: a live relationship counter, important dates with reminders, a timeline of memories and photos, and native home-screen/lock-screen widgets and smartwatch complications. No account, no backend, no analytics — everything stays on the device.
+*Our time, together.* A private, offline-first relationship companion: a live relationship counter, important dates with reminders, a timeline of memories and photos, and native home-screen/lock-screen widgets and smartwatch complications. No account and no backend; everything you add stays on the device. Optional, off-by-default anonymous usage sharing can be enabled at build time ([`docs/USAGE_ANALYTICS.md`](docs/USAGE_ANALYTICS.md)).
 
 - Product specification (source of truth): [`Harmonia_Product_Spec.md`](Harmonia_Product_Spec.md)
 - Implementation status, test results, blockers: [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)
@@ -109,7 +109,7 @@ docs/                      Architecture, rules, plan, setup and release document
 
 ## Privacy
 
-Harmonia stores everything locally (SQLite + app-private files), makes no network requests of its own, includes no analytics or ads, excludes its data from cloud backups, keeps notifications discreet by default, and shows only the fields documented in `docs/WIDGET_SNAPSHOT.md` on widgets and watches. Users can export a ZIP (JSON + photos) or delete everything from *Settings › Privacy and data*.
+Harmonia stores everything locally (SQLite + app-private files), makes no network requests of its own except opt-in anonymous usage events (only when a destination is configured and the user turns sharing on; never user content — see `docs/USAGE_ANALYTICS.md`), includes no ads, excludes its data from cloud backups, keeps notifications discreet by default, and shows only the fields documented in `docs/WIDGET_SNAPSHOT.md` on widgets and watches. Users can export a ZIP (JSON + photos) or delete everything from *Settings › Privacy and data*.
 
 ## Licenses
 

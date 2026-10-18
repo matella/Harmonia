@@ -72,6 +72,17 @@
         </section>
       }
 
+      @if (usage.showPrompt()) {
+        <section class="hm-card usage-prompt" aria-labelledby="usage-prompt-title">
+          <h2 id="usage-prompt-title" class="usage-prompt__title">{{ 'usage.promptTitle' | t }}</h2>
+          <p class="usage-prompt__body">{{ 'usage.promptBody' | t }}</p>
+          <div class="usage-prompt__actions">
+            <button type="button" class="hm-btn" (click)="answerUsage(true)">{{ 'usage.promptAccept' | t }}</button>
+            <button type="button" class="hm-btn hm-btn--quiet" (click)="answerUsage(false)">{{ 'usage.promptDecline' | t }}</button>
+          </div>
+        </section>
+      }
+
       <div class="quick-add">
         <button type="button" class="hm-btn hm-btn--outline hm-btn--block" (click)="openAddMenu()">
           <ion-icon name="add" aria-hidden="true" />{{ 'home.add' | t }}

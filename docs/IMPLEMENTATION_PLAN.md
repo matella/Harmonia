@@ -64,11 +64,18 @@ Done: original icons/splash, replaceable identifiers, versioning (1.0.0), permis
 - Viewed on emulators: Home, Dates, counter detail, Appearance and Reminders settings, medium widget (French), Wear OS app screen (French). **Not viewed:** small widget, widget configuration screen and Wear complication in French/Dutch, Dutch widget, iOS anything.
 - Tests: 23 together-milestone tests (incl. counter-agreement properties for month-end and Feb 29 starts), 5 together-reminder tests, 2 snapshot tests, catalog parity tests (keys, plural/string kind, placeholders) and FR/NL formatting tests, and a Dates component spec (milestone together shown with no dates yet).
 
+### Post-1.0 — Opt-in anonymous usage sharing — Done, Tested, partly Verified (Android); **Blocked: needs an Aptabase app key or self-hosted URL**
+- Closed event schema (`core/domain/usage-events.ts`) with runtime guard; consent-gated in-memory recorder and Aptabase client (`core/platform/usage-analytics.ts`); `UsageService` (screens by route pattern, setting changes, saves/deletes, export, recheck, permission result, coarse `app_started`).
+- One-time invitation on Home (not in the onboarding session), toggle in Privacy and data, statement variant, all in EN/FR/NL; shown only when `USAGE_CONFIG` is set (it is `null` in the repo, so the shipped behaviour is unchanged).
+- Delete-all discards the queue and resets consent; browser preview never sends; iOS privacy manifest declares Product Interaction (not linked, not tracking).
+- Tests: 6 schema tests (incl. leak rejection), 10 recorder/endpoint tests (consent, exact body, batching, back-off, 4xx, sessions), 5 service specs (off by default, opt-in sends, delete-all discards, prompt rules, no destination = no feature).
+- Verified on the emulator with an unresolvable test host (details in `docs/USAGE_ANALYTICS.md`): 0 requests before opt-in and after opt-out; bodies contain only the documented fields. Not verified: real Aptabase ingestion/CORS, iOS.
+
 ## Test and build results (2026-10-18, this environment, after the toolchain upgrade)
 
 | Check | Command | Result |
 |---|---|---|
-| Full JS gate | `bun run check` | ✅ typecheck, lint (all files pass), 13 files / 175 domain tests, 3 files / 10 Angular specs, production build 1.17 MB initial (≈268 kB transfer), no warnings |
+| Full JS gate | `bun run check` | ✅ typecheck, lint (all files pass), 15 files / 191 domain tests, 4 files / 15 Angular specs, production build 1.18 MB initial (≈272 kB transfer), no warnings |
 | Kotlin core | `bun run android:test` (`:harmonia-core:test`) | ✅ 9 tests (all shared vectors), re-run after `cleanTest` |
 | Android app + Wear builds | `bun run android:build`, `:wear:assembleDebug` | ✅ on AGP 9.4.1 / Gradle 9.8.1 / Kotlin 2.4.21 |
 | Android lint | `:app:lintDebug :wear:lintDebug` | ✅ 0 errors (10 + 3 warnings: API-level attributes, unused resources, style) |
@@ -113,4 +120,5 @@ Done: original icons/splash, replaceable identifiers, versioning (1.0.0), permis
 3. Device accessibility pass; fix findings.
 4. Signing + release builds (AAB/IPA), R8 rules, store metadata and screenshots; naming review.
 5. Native-speaker review of the French and Dutch copy (app, widgets, watch, permission prompts, store listing).
-6. Optional next features from the spec backlog: data import from export, future-start countdown mode.
+6. Usage sharing: supply an Aptabase app key (EU) or self-hosted URL, verify ingestion, publish a privacy policy, fill the store privacy forms.
+7. Optional next features from the spec backlog: data import from export, future-start countdown mode.
