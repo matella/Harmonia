@@ -125,6 +125,25 @@ describe('sharing schema (PGlite + Supabase shim)', () => {
     expect(Number(after.seq)).toBeGreaterThan(Number(before.seq));
   });
 
+  it('assigns the change cursor itself and keeps record identity immutable', async () => {
+    const forged = '22222222-2222-4222-8222-222222222222';
+    await as('samPhone', () =>
+      q(`insert into records (space_id, record_type, record_id, version, epoch, nonce, ciphertext, seq) values ($1, 'memory', $2, $3, 1, $4, $5, 1)`, [
+        space,
+        forged,
+        version(4000),
+        bytes(5, 24),
+        bytes(6, 64),
+      ]),
+    );
+    const rows = await as('samPhone', () => q<{ record_id: string; seq: string }>(`select record_id, seq from records order by seq`));
+    // A client-supplied low seq is ignored: the new record sorts after the existing one.
+    expect(rows.map((r) => r.record_id)).toEqual([firstRecordId, forged]);
+    await expect(
+      as('samPhone', () => q(`update records set record_id = gen_random_uuid(), version = $1 where record_id = $2`, [version(5000), forged])),
+    ).rejects.toThrow(/immutable/);
+  });
+
   it('adds a second device for the same person, then revokes it with a new epoch', async () => {
     const [{ create_invite: invite }] = await as('matthieuPhone', () => q<{ create_invite: string }>(`select create_invite($1)`, [bytes(7, 72)]));
     await as('matthieuTablet', () => q(`select * from claim_invite($1)`, [invite]));
@@ -132,7 +151,7 @@ describe('sharing schema (PGlite + Supabase shim)', () => {
       q<{ approve_invite: string }>(`select approve_invite($1, $2, $3)`, [invite, bytes(10, 80), matthieu]),
     );
     expect(person).toBe(matthieu);
-    expect(await as('matthieuTablet', () => q(`select * from records`))).toHaveLength(1);
+    expect(await as('matthieuTablet', () => q(`select * from records`))).toHaveLength(2);
 
     const tablet = (await as('matthieuTablet', () => q<{ id: string }>(`select current_device_id() as id`)))[0].id;
     const [{ revoke_device: epoch }] = await as('samPhone', () => q<{ revoke_device: number }>(`select revoke_device($1)`, [tablet]));

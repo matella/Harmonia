@@ -255,9 +255,17 @@ The product questions (joining with existing data, edit rights and trash, partne
   - an older version is ignored and a newer one advances the cursor;
   - a second device joins as the same person, and revoking it starts epoch 2 and cuts its access;
   - dissolving removes everything from the server.
+- **Security review fix:** migration `20261021000100_records_server_cursor.sql`. The server now always assigns the change cursor `seq` on insert, so a member can't hide a record from incremental pulls with a low `seq`. A record's space, type and ID can't change on update. Tested on PGlite (9 tests) and re-applied to the live stack (`supabase db reset`, 4 live tests pass).
 - A mutation check (opening up the read rule and disabling the version trigger) makes 5 of the 8 tests fail, so they test what they claim.
+- **Live check (2026-10-21, later):** the migration applies on a local Supabase stack (Postgres 17, `bunx supabase start`, anonymous sign-in enabled in `supabase/config.toml`). `supabase/tests/sharing-live.test.ts` runs only when `SUPABASE_LIVE=1`. ✅ 4 tests through real GoTrue anonymous sessions and PostgREST:
+  - devices register;
+  - only members read records, and a stranger's insert is rejected by row-level security;
+  - invite, claim and approve work, and invites are single use;
+  - an older version is ignored;
+  - dissolving removes everything;
+  - the signed-out role sees nothing.
 - **Not done:**
-  - Supabase itself. No project exists, and Docker Desktop's engine never started here; its first-run setup appears unfinished.
+  - A hosted Supabase EU project.
   - The real GoTrue anonymous sign-in, Storage buckets and Edge Functions.
   - Abuse protection: rate limits, Play Integrity and App Attest.
 

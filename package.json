@@ -44,6 +44,7 @@
     "@fontsource-variable/fraunces": "^5.3.0",
     "@fontsource/dm-sans": "^5.3.0",
     "@ionic/angular": "^9.0.8",
+    "@supabase/supabase-js": "^2.118.0",
     "fflate": "^0.8.3",
     "ionicons": "^8.1.0",
     "libsodium-wrappers": "^0.8.4",
