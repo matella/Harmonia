@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, isDevMode } from '@angular/core';
 
 import { MediaStorageService } from '../platform/media-storage.service';
 import { DatabaseTooNewError, MigrationError } from '../persistence/migrations';
@@ -49,6 +49,8 @@ export class BootstrapService {
     }
     this.store.status.set('ready');
     this.lifecycle.start();
+    // Phase 0 sharing spike: DevTools hooks in development builds only (docs/PARTNER_SYNC.md §15).
+    if (isDevMode()) void import('../sync/dev-hooks').then((m) => m.installSyncDevHooks());
     setTimeout(() => void this.afterStart(), 0);
   }
 

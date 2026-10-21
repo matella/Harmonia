@@ -29,5 +29,6 @@ Bun is the package manager (`bun install`, `bun.lock`); do not add `package-lock
 
 ## Conventions
 - Prettier (`.prettierrc`: print width 100, single quotes). Component selector prefix `hm-`.
-- Tests: `*.test.ts` = framework-free (vitest, `vitest.config.mts`); `*.spec.ts` = Angular (`ng test`).
+- Tests: `*.test.ts` = framework-free (vitest, `vitest.config.mts`; includes `supabase/**` schema/RLS tests on PGlite); `*.spec.ts` = Angular (`ng test`).
+- Partner sharing (in progress, `docs/PARTNER_SYNC.md`): crypto in `core/sync` (libsodium, always lazy-loaded), secrets only through `core/platform/secure-key-store.ts`, server schema in `supabase/migrations` (append-only, tested in `supabase/tests`).
 - Do not add a backend, accounts, ads, remote fonts, or analytics beyond the opt-in usage events above.

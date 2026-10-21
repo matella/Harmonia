@@ -1,6 +1,6 @@
 # Partner sharing and multi-device sync (design)
 
-**Status:** design only, not implemented. **Decided by the product owner on 2026-10-21:**
+**Status:** design; phase 0 spike done (§15), nothing user-facing implemented. **Decided by the product owner on 2026-10-21:**
 1. Online sharing uses **end-to-end encrypted sync**. The server stores only ciphertext.
 2. **Memories, photos included, are visible to every member** of the shared space.
 3. **After leaving or a breakup, each person keeps everything** they have locally.
@@ -57,7 +57,7 @@ Library: **libsodium.js** (`libsodium-wrappers`, standard build, WASM). It runs 
 | Key delivery to a device | `crypto_box_seal(K[epoch], devicePublicKey)` |
 | Photos | Per-file random key; `crypto_secretstream_xchacha20poly1305` in 64 KiB chunks (resumable, constant memory); the file key is stored inside the encrypted media record |
 | Invite secret | 32 random bytes, sent only in a URL fragment or QR code; `crypto_kdf` derives the invite key |
-| Recovery key | 160 random bits plus a checksum, shown as grouped base32 (§8); `crypto_kdf` derives the lookup ID and the wrapping key. No password stretching is needed, which matters because the standard build has no `crypto_pwhash`. |
+| Recovery key | 184 random bits plus a 16-bit checksum, shown as grouped Crockford base32 (§8); BLAKE2b then `crypto_kdf` derive the lookup ID and the wrapping key. No password stretching is needed, which matters because the standard build has no `crypto_pwhash`. |
 | Safety code | `crypto_generichash` over both device public keys and the invite ID, shown as 6 digits on both screens |
 
 **Key storage:** `@aparajita/capacitor-secure-storage` 8.x (iOS Keychain, Android Keystore). To verify in the spike:
@@ -164,7 +164,7 @@ Reminder rules are per device. When the partner adds a date, it arrives **withou
 - **Every rotation also re-wraps each person's recovery envelope.** Without that, recovery breaks.
 
 ## 8. Recovery key
-- 160 random bits plus a 16-bit checksum, shown as **8 groups of 5 base32 characters**, for example `K7QX2-…`. It's language-neutral (no English word list) and typo-safe thanks to the checksum.
+- 184 random bits plus a 16-bit checksum (25 bytes), shown as **8 groups of 5 Crockford base32 characters**, for example `K7QX2-…`. It's language-neutral (no English word list) and typo-tolerant: O reads as 0, I and L as 1, and the checksum rejects typos.
 - It's shown once, when sharing is turned on. The user must confirm it by typing back two groups. They can copy it or save it as a file, and print it as an option. It can be shown again on a device that's already a member.
 - The server stores, per person, `lookupId = KDF(recoveryKey, "lookup")` and `K[epoch]` sealed with `KDF(recoveryKey, "wrap")`. It never stores the key itself.
 - **To recover:** on a new device, enter the key. The device fetches the envelope by lookup ID, registers as a device of that person, and is admitted.
@@ -220,3 +220,54 @@ The product questions (joining with existing data, edit rights and trash, partne
 2. **Domain** for invite links, the privacy policy and support. It blocks links, but not QR invites.
 3. **Photo storage quota** per space and the pricing impact.
 4. **App lock** (PIN or biometrics): recommended in the same release as sharing.
+
+## 15. Phase 0 spike results (2026-10-21)
+
+**Crypto** (`src/app/core/sync/sync-crypto.ts`, self-test `sync-self-test.ts`):
+- Every §3 construction is implemented with libsodium-wrappers 0.8.4.
+- 21 round-trip and tamper checks run in Node (vitest). Tampering covers a record moved to another ID or epoch, the wrong key, the wrong invite secret, a recovery-key typo, and photo chunks truncated, reordered or altered.
+- The safety code is order-independent and changes if a key is swapped.
+- **Bundle:** libsodium is a separate on-demand chunk of 434 kB (124 kB compressed). The startup bundle is unchanged (1.18 MB), so solo users never download it.
+- libsodium 0.8 ships **WebAssembly only**, with no JavaScript fallback. A WebView without WASM fails to load it, loudly.
+
+**Android WebView** (API 37.2 emulator, WebView 149, development build with DevTools hooks in `core/sync/dev-hooks.ts`):
+- ✅ All 21 checks pass.
+- Timings: load 25 ms, device keys 1.2 ms, a 1.5 MB photo encrypted in 8.3 ms and decrypted in 6.1 ms.
+
+**Secure storage** (`core/platform/secure-key-store.ts`, `@aparajita/capacitor-secure-storage` 8.0.1):
+- ✅ A device key survives the app being killed.
+- ✅ On disk it is only ciphertext. It's AES-GCM under an Android Keystore key, in app-private preferences excluded from backups, and the public key appears nowhere in the file.
+- ✅ Removal works. Android writes the preferences file lazily, so it's empty only after a moment.
+- iOS is configured as `whenUnlockedThisDeviceOnly` with iCloud sync off, but **not run (no Mac)**.
+- Whether the Android key is hardware-backed can't be judged on an emulator. Check on a real phone.
+- The plugin's own web fallback is `localStorage`, so our wrapper uses memory only on the web.
+- The package also lists `@capacitor/keyboard` as a dependency. Capacitor registers only plugins the app itself declares, so no extra native code is built in.
+
+**Server schema** (`supabase/migrations/20261021000000_sharing_init.sql`):
+- The tables of §4 with row-level security on all of them. Cross-device operations go through `SECURITY DEFINER` functions: `create_space`, `create_invite`, `claim_invite`, `approve_invite`, `revoke_device`, `dissolve_space`.
+- A trigger stops an older HLC version from overwriting a newer one.
+- **Tests:** `supabase/tests/sharing-rls.test.ts` runs the real migration on PGlite 0.5.11 (Postgres in WASM) with a Supabase auth shim. ✅ 8 tests:
+  - only members see a space and its records;
+  - a stranger's insert is rejected by row-level security;
+  - invites are single use and expire, and a claimed but unapproved device sees nothing;
+  - a stranger can't approve an invite;
+  - each device reads only its own key envelope;
+  - an older version is ignored and a newer one advances the cursor;
+  - a second device joins as the same person, and revoking it starts epoch 2 and cuts its access;
+  - dissolving removes everything from the server.
+- A mutation check (opening up the read rule and disabling the version trigger) makes 5 of the 8 tests fail, so they test what they claim.
+- **Not done:**
+  - Supabase itself. No project exists, and Docker Desktop's engine never started here; its first-run setup appears unfinished.
+  - The real GoTrue anonymous sign-in, Storage buckets and Edge Functions.
+  - Abuse protection: rate limits, Play Integrity and App Attest.
+
+**QR codes (chosen, not installed):**
+- Scanning: `@capacitor/barcode-scanner` 3.1.3, the official Capacitor plugin. `@capacitor-mlkit/barcode-scanning` 8.2.1 is the alternative. Phase 2 must check the Google Play services dependency on Android.
+- Display: `uqr` (no dependencies, SVG output).
+
+**Next (phase 1):** the local data model migration (§5): persons, HLC, tombstones, the outbox, the trash, and the local/shared split. It needs no server.
+
+**Before phase 2:**
+- a Supabase EU project, or a working Docker for `supabase start`;
+- a decision on the domain;
+- the iOS check of the Keychain attributes and of libsodium in WKWebView.
