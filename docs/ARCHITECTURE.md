@@ -83,6 +83,7 @@ See `docs/WIDGET_SNAPSHOT.md` for the contract.
 | Photos re-encoded on import | Orientation baked in, EXIF/GPS metadata stripped, size bounded; thumbnails for lists. |
 | Capacitor `loggingBehavior: 'none'` | The native bridge otherwise logs plugin results (SQL rows, notification text) in debug builds. |
 | Opt-in anonymous usage (Aptabase), decided 2026-10-18 | Product owner wants usage feedback. Off by default, which meets spec §12 ("no analytics … by default"), but departs from the non-goals on lines 24/89; self-hosting avoids the third-party part. Small own client instead of an SDK, so every byte sent is under test. See USAGE_ANALYTICS.md. |
+| Partner sharing via end-to-end encrypted sync (designed 2026-10-21, not built) | Owner wants couple sharing and multi-device use while keeping the privacy promise; server stores only ciphertext, recovery by key. See PARTNER_SYNC.md. |
 | Inexact alarms only | Spec: no exact-alarm access; dates don't need minute precision. |
 | Local `HarmoniaCore` Swift package | Shared by widget/watch targets; `swift test` runs the shared vectors on any Mac without Xcode project changes. |
 | AGP 9.4.1 + Gradle 9.8.1 + Kotlin 2.4.21, Foojay toolchains | Latest stable. Capacitor 8 plugins still apply `org.jetbrains.kotlin.android` and the legacy variant API, so `gradle.properties` sets `android.builtInKotlin=false` and `android.newDsl=false` until they migrate. Foojay provisions the JDK 21 that Capacitor plugins require; Gradle runs on Android Studio's JBR 25. |

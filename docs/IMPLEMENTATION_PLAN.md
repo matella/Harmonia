@@ -121,4 +121,5 @@ Done: original icons/splash, replaceable identifiers, versioning (1.0.0), permis
 4. Signing + release builds (AAB/IPA), R8 rules, store metadata and screenshots; naming review.
 5. Native-speaker review of the French and Dutch copy (app, widgets, watch, permission prompts, store listing).
 6. Usage sharing: supply an Aptabase app key (EU) or self-hosted URL, verify ingestion, publish a privacy policy, fill the store privacy forms.
-7. Optional next features from the spec backlog: data import from export, future-start countdown mode.
+7. Partner sharing and multi-device sync (end-to-end encrypted): **designed, not started** — `docs/PARTNER_SYNC.md` (owner decisions 2026-10-21; open decisions in §14; phase 0 spike first).
+8. Optional next features from the spec backlog: data import from export, future-start countdown mode.
