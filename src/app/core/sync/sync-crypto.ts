@@ -78,6 +78,10 @@ export interface RecordAddress {
   recordType: string;
   recordId: string;
   epoch: number;
+  /** HLC version the server stores next to the ciphertext. */
+  version: string;
+  /** Tombstone flag the server stores next to the ciphertext. */
+  deleted: boolean;
 }
 
 export interface EncryptedRecord {
@@ -86,12 +90,22 @@ export interface EncryptedRecord {
 }
 
 /**
- * Additional authenticated data: binds a ciphertext to its place, so the server cannot
- * move a record to another ID, type, space or epoch without decryption failing.
+ * Additional authenticated data: binds a ciphertext to its place and to the metadata the
+ * server stores beside it. The server cannot move a record to another ID, type, space or
+ * epoch, replay an old ciphertext under a newer version, or flip the deleted flag,
+ * without decryption failing.
  */
 export function recordAad(address: RecordAddress): Uint8Array {
   return new TextEncoder().encode(
-    JSON.stringify(['harmonia-record-v1', address.spaceId, address.recordType, address.recordId, address.epoch]),
+    JSON.stringify([
+      'harmonia-record-v2',
+      address.spaceId,
+      address.recordType,
+      address.recordId,
+      address.epoch,
+      address.version,
+      address.deleted,
+    ]),
   );
 }
 
@@ -125,13 +139,27 @@ export function unwrapInvite(s: Sodium, wrapped: Uint8Array, inviteSecret: Uint8
   return secretboxUnwrap(s, wrapped, s.crypto_kdf_derive_from_key(32, 1, 'hminvite', inviteSecret));
 }
 
+/** Both public keys of a device: the safety code must cover the key the space key is sealed to. */
+export type DevicePublicKeys = Pick<DeviceKeys, 'signPublicKey' | 'boxPublicKey'>;
+
 /**
- * Six digits shown on both screens before an invite is approved. Order-independent, and
- * bound to the invite, so a man-in-the-middle with different keys shows different digits.
+ * Six digits shown on both screens before an invite is approved. Order-independent.
+ * It covers both public keys of each device (a server that swaps the encryption key
+ * changes the digits) and is keyed with the invite secret, which travels only in the
+ * link or QR code: the server cannot compute the code, so it cannot grind key pairs
+ * offline until the six digits match.
  */
-export function safetyCode(s: Sodium, inviteId: string, publicKeyA: Uint8Array, publicKeyB: Uint8Array): string {
-  const [first, second] = [s.to_hex(publicKeyA), s.to_hex(publicKeyB)].sort();
-  const digest = s.crypto_generichash(8, `harmonia-safety-v1|${inviteId}|${first}|${second}`, null);
+export function safetyCode(
+  s: Sodium,
+  inviteSecret: Uint8Array,
+  inviteId: string,
+  deviceA: DevicePublicKeys,
+  deviceB: DevicePublicKeys,
+): string {
+  const fingerprint = (d: DevicePublicKeys) => `${s.to_hex(d.signPublicKey)}.${s.to_hex(d.boxPublicKey)}`;
+  const [first, second] = [fingerprint(deviceA), fingerprint(deviceB)].sort();
+  const key = s.crypto_kdf_derive_from_key(32, 2, 'hminvite', inviteSecret);
+  const digest = s.crypto_generichash(8, `harmonia-safety-v2|${inviteId}|${first}|${second}`, key);
   const value = new DataView(digest.buffer, digest.byteOffset, digest.byteLength).getUint32(0) % 1_000_000;
   return value.toString().padStart(6, '0');
 }

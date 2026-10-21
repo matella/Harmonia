@@ -52,13 +52,18 @@ export async function runSyncSelfTest(now: () => number = () => performance.now(
   checks['sealedKeyRoundTrip'] = equal(openSealedSpaceKey(s, sealSpaceKey(s, spaceKey, bob.boxPublicKey), bob), spaceKey);
   checks['sealedKeyWrongDevice'] = throws(() => openSealedSpaceKey(s, sealSpaceKey(s, spaceKey, bob.boxPublicKey), alice));
 
-  const address = { spaceId: 'space-1', recordType: 'milestone', recordId: 'm-1', epoch: 1 };
+  const address = { spaceId: 'space-1', recordType: 'milestone', recordId: 'm-1', epoch: 1, version: '1792317600000-000000-0000abcd', deleted: false };
   const plaintext = JSON.stringify({ title: 'Notre anniversaire 💞', eventDate: '2024-06-14' });
   const record = encryptRecord(s, spaceKey, address, plaintext);
   checks['recordRoundTrip'] = decryptRecord(s, spaceKey, address, record) === plaintext;
   checks['recordMovedIsRejected'] = throws(() => decryptRecord(s, spaceKey, { ...address, recordId: 'm-2' }, record));
   checks['recordOtherEpochIsRejected'] = throws(() => decryptRecord(s, spaceKey, { ...address, epoch: 2 }, record));
   checks['recordWrongKeyIsRejected'] = throws(() => decryptRecord(s, newSpaceKey(s), address, record));
+  // Rollback: an old ciphertext presented under a newer version, or a flipped tombstone.
+  checks['recordReplayUnderNewVersionIsRejected'] = throws(() =>
+    decryptRecord(s, spaceKey, { ...address, version: '1792317600001-000000-0000abcd' }, record),
+  );
+  checks['recordFlippedTombstoneIsRejected'] = throws(() => decryptRecord(s, spaceKey, { ...address, deleted: true }, record));
 
   const message = s.from_string('POST /records 1792317600');
   const signature = signMessage(s, message, alice);
@@ -68,9 +73,14 @@ export async function runSyncSelfTest(now: () => number = () => performance.now(
   const secret = newInviteSecret(s);
   checks['inviteRoundTrip'] = equal(unwrapInvite(s, wrapForInvite(s, spaceKey, secret), secret), spaceKey);
   checks['inviteWrongSecret'] = throws(() => unwrapInvite(s, wrapForInvite(s, spaceKey, secret), newInviteSecret(s)));
-  const codeA = safetyCode(s, 'invite-1', alice.signPublicKey, bob.signPublicKey);
-  checks['safetyCodeSymmetric'] = codeA === safetyCode(s, 'invite-1', bob.signPublicKey, alice.signPublicKey) && /^\d{6}$/.test(codeA);
-  checks['safetyCodeDetectsSwap'] = codeA !== safetyCode(s, 'invite-1', alice.signPublicKey, generateDeviceKeys(s).signPublicKey);
+  const codeA = safetyCode(s, secret, 'invite-1', alice, bob);
+  checks['safetyCodeSymmetric'] = codeA === safetyCode(s, secret, 'invite-1', bob, alice) && /^\d{6}$/.test(codeA);
+  const impostor = generateDeviceKeys(s);
+  checks['safetyCodeDetectsSigningKeySwap'] = codeA !== safetyCode(s, secret, 'invite-1', alice, { ...bob, signPublicKey: impostor.signPublicKey });
+  // The attack the server could mount: keep Bob's signing key, substitute its own encryption key.
+  checks['safetyCodeDetectsEncryptionKeySwap'] = codeA !== safetyCode(s, secret, 'invite-1', alice, { ...bob, boxPublicKey: impostor.boxPublicKey });
+  // Without the invite secret (which never reaches the server) the code is different.
+  checks['safetyCodeNeedsInviteSecret'] = codeA !== safetyCode(s, newInviteSecret(s), 'invite-1', alice, bob);
 
   const recovery = generateRecoveryKey(s);
   const parsed = parseRecoveryKey(s, recovery.display.toLowerCase().replace(/0/g, 'o'));
