@@ -23,6 +23,7 @@ describe('DatesPage', () => {
     store.settings.set({ ...DEFAULT_SETTINGS, defaultReminderOffsets: [1, 0] });
     store.profile.set({
       displayName: 'Sam',
+      selfName: null,
       relationshipLabel: null,
       startDate: '2024-06-14',
       startTime: null,

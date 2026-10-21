@@ -2,6 +2,7 @@ import type { Clock } from '../domain/clock';
 import type { LeapDayPolicy, Milestone, MilestoneCategory, Recurrence, ReminderRule } from '../domain/models';
 import { TOGETHER_NOTIFICATION_ID_BASE } from '../domain/reminder-planner';
 import type { ReminderDraft, ValidMilestone } from '../domain/validation';
+import { ChangeJournal } from './change-journal';
 import type { IdFactory } from './ids';
 import type { SqlDriver, SqlExecutor, SqlRow } from './sql-driver';
 
@@ -69,7 +70,10 @@ function toRule(row: RuleRow): ReminderRule {
 const FIRST_NOTIFICATION_ID = 1000;
 
 export interface MilestoneDeletion {
-  /** App-private media files that are no longer referenced and can be removed. */
+  /**
+   * App-private media files that can be removed now. Always empty since the trash: files
+   * are kept until the item is restored or purged.
+   */
   orphanedFiles: string[];
 }
 
@@ -78,20 +82,31 @@ export class MilestoneRepository {
     private readonly db: SqlDriver,
     private readonly clock: Clock,
     private readonly newId: IdFactory,
+    private readonly journal: ChangeJournal = new ChangeJournal(clock),
   ) {}
 
+  /** Active milestones (not in the trash). */
   async list(): Promise<Milestone[]> {
-    const rows = await this.db.query<MilestoneRow>('SELECT * FROM milestones ORDER BY event_date, created_at, id');
+    const rows = await this.db.query<MilestoneRow>(
+      'SELECT * FROM milestones WHERE deleted_at IS NULL ORDER BY event_date, created_at, id',
+    );
     return rows.map(toMilestone);
   }
 
   async get(id: string): Promise<Milestone | null> {
-    const rows = await this.db.query<MilestoneRow>('SELECT * FROM milestones WHERE id = ?', [id]);
+    const rows = await this.db.query<MilestoneRow>('SELECT * FROM milestones WHERE id = ? AND deleted_at IS NULL', [id]);
     return rows[0] ? toMilestone(rows[0]) : null;
   }
 
+  /**
+   * Rules of active milestones. Rules of a trashed milestone are kept (with their
+   * notification IDs) so restoring it brings the same reminders back.
+   */
   async listRules(): Promise<ReminderRule[]> {
-    const rows = await this.db.query<RuleRow>('SELECT * FROM reminder_rules ORDER BY milestone_id, offset_days DESC');
+    const rows = await this.db.query<RuleRow>(
+      `SELECT r.* FROM reminder_rules r JOIN milestones m ON m.id = r.milestone_id
+       WHERE m.deleted_at IS NULL ORDER BY r.milestone_id, r.offset_days DESC`,
+    );
     return rows.map(toRule);
   }
 
@@ -107,11 +122,12 @@ export class MilestoneRepository {
     const id = this.newId();
     const now = this.clock.now().toString();
     await this.db.transaction(async (tx) => {
+      const version = await this.journal.stamp(tx);
       await tx.run(
         `INSERT INTO milestones
           (id, title, category, event_date, event_time, event_time_zone_id, recurrence_rule,
-           leap_day_policy, note, photo_path, is_pinned, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+           leap_day_policy, note, photo_path, is_pinned, created_at, updated_at, version, author_person_id)
+         VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           input.title,
@@ -125,9 +141,12 @@ export class MilestoneRepository {
           input.isPinned ? 1 : 0,
           now,
           now,
+          version,
+          await this.journal.selfPersonId(tx),
         ],
       );
       await this.syncRules(tx, id, input.reminders, now);
+      await this.journal.changed(tx, 'milestone', id, version);
     });
     return (await this.get(id))!;
   }
@@ -140,11 +159,16 @@ export class MilestoneRepository {
   async update(id: string, input: ValidMilestone, photoPath?: string | null): Promise<Milestone> {
     const now = this.clock.now().toString();
     await this.db.transaction(async (tx) => {
-      const existing = await tx.query<{ photo_path: string | null }>('SELECT photo_path FROM milestones WHERE id = ?', [id]);
+      const existing = await tx.query<{ photo_path: string | null }>(
+        'SELECT photo_path FROM milestones WHERE id = ? AND deleted_at IS NULL',
+        [id],
+      );
       if (existing.length === 0) throw new Error('Milestone not found');
+      const version = await this.journal.stamp(tx);
       await tx.run(
         `UPDATE milestones SET title = ?, category = ?, event_date = ?, event_time = ?,
-           recurrence_rule = ?, leap_day_policy = ?, note = ?, photo_path = ?, is_pinned = ?, updated_at = ?
+           recurrence_rule = ?, leap_day_policy = ?, note = ?, photo_path = ?, is_pinned = ?, updated_at = ?,
+           version = ?, author_person_id = ?
          WHERE id = ?`,
         [
           input.title,
@@ -157,50 +181,67 @@ export class MilestoneRepository {
           photoPath === undefined ? existing[0].photo_path : photoPath,
           input.isPinned ? 1 : 0,
           now,
+          version,
+          await this.journal.selfPersonId(tx),
           id,
         ],
       );
       await this.syncRules(tx, id, input.reminders, now);
+      await this.journal.changed(tx, 'milestone', id, version);
     });
     return (await this.get(id))!;
   }
 
   async setPinned(id: string, pinned: boolean): Promise<void> {
-    await this.db.run('UPDATE milestones SET is_pinned = ?, updated_at = ? WHERE id = ?', [
-      pinned ? 1 : 0,
-      this.clock.now().toString(),
-      id,
-    ]);
+    await this.db.transaction(async (tx) => {
+      const version = await this.journal.stamp(tx);
+      await tx.run(
+        'UPDATE milestones SET is_pinned = ?, updated_at = ?, version = ?, author_person_id = ? WHERE id = ? AND deleted_at IS NULL',
+        [pinned ? 1 : 0, this.clock.now().toString(), version, await this.journal.selfPersonId(tx), id],
+      );
+      await this.journal.changed(tx, 'milestone', id, version);
+    });
   }
 
   async countLinkedMemories(id: string): Promise<number> {
-    const rows = await this.db.query<{ n: number }>('SELECT COUNT(*) AS n FROM memories WHERE milestone_id = ?', [id]);
+    const rows = await this.db.query<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM memories WHERE milestone_id = ? AND deleted_at IS NULL',
+      [id],
+    );
     return rows[0]?.n ?? 0;
   }
 
   /**
-   * Deletes a milestone and its reminder rules. Linked memories are either kept (and
-   * unlinked) or deleted together with their media, as the user chose.
+   * Moves a milestone to the trash (30 days). Its reminder rules stay but no longer apply.
+   * Linked memories either stay (and show as unlinked until the date is restored) or go
+   * to the trash with it, as the user chose. Nothing is removed from disk here.
    */
   async delete(id: string, options: { deleteLinkedMemories: boolean }): Promise<MilestoneDeletion> {
     return this.db.transaction(async (tx) => {
-      const orphanedFiles: string[] = [];
-      const own = await tx.query<{ photo_path: string | null }>('SELECT photo_path FROM milestones WHERE id = ?', [id]);
-      if (own[0]?.photo_path) orphanedFiles.push(own[0].photo_path);
+      const now = this.clock.now().toString();
+      const found = await tx.query<{ id: string }>('SELECT id FROM milestones WHERE id = ? AND deleted_at IS NULL', [id]);
+      if (found.length === 0) return { orphanedFiles: [] };
       if (options.deleteLinkedMemories) {
-        const media = await tx.query<{ file_path: string; thumbnail_path: string | null }>(
-          `SELECT mm.file_path, mm.thumbnail_path FROM memory_media mm
-           JOIN memories m ON m.id = mm.memory_id WHERE m.milestone_id = ?`,
+        const linked = await tx.query<{ id: string }>(
+          'SELECT id FROM memories WHERE milestone_id = ? AND deleted_at IS NULL',
           [id],
         );
-        for (const m of media) {
-          orphanedFiles.push(m.file_path);
-          if (m.thumbnail_path) orphanedFiles.push(m.thumbnail_path);
+        for (const memory of linked) {
+          const version = await this.journal.stamp(tx);
+          await tx.run('UPDATE memories SET deleted_at = ?, trashed_with = ?, version = ?, updated_at = ? WHERE id = ?', [
+            now,
+            id,
+            version,
+            now,
+            memory.id,
+          ]);
+          await this.journal.changed(tx, 'memory', memory.id, version);
         }
-        await tx.run('DELETE FROM memories WHERE milestone_id = ?', [id]);
       }
-      await tx.run('DELETE FROM milestones WHERE id = ?', [id]);
-      return { orphanedFiles };
+      const version = await this.journal.stamp(tx);
+      await tx.run('UPDATE milestones SET deleted_at = ?, version = ?, updated_at = ? WHERE id = ?', [now, version, now, id]);
+      await this.journal.changed(tx, 'milestone', id, version);
+      return { orphanedFiles: [] };
     });
   }
 

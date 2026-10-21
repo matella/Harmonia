@@ -28,6 +28,7 @@ async function openDb(initialBytes?: Uint8Array) {
 
 const profile: ValidProfile = {
   displayName: 'Sam',
+  selfName: null,
   relationshipLabel: null,
   startDate: '2024-06-14',
   startTime: null,
@@ -155,7 +156,7 @@ describe('MilestoneRepository', () => {
     expect((await milestones.get(m.id))?.isPinned).toBe(true);
   });
 
-  it('deletes a milestone and its rules but can keep linked memories', async () => {
+  it('moves a milestone to the trash, hiding its rules, and can keep linked memories', async () => {
     const { milestones, memories } = await openDb();
     const m = await milestones.create(milestone());
     const memory = await memories.create(
@@ -167,20 +168,22 @@ describe('MilestoneRepository', () => {
     expect(result.orphanedFiles).toEqual([]);
     expect(await milestones.get(m.id)).toBeNull();
     expect(await milestones.listRules()).toEqual([]);
+    // The kept memory keeps its link (shown as unlinked while the date is in the trash).
     const kept = await memories.get(memory.id);
-    expect(kept?.milestoneId).toBeNull();
+    expect(kept?.milestoneId).toBe(m.id);
     expect(kept?.media).toHaveLength(1);
   });
 
-  it('can delete linked memories together with the milestone and reports their files', async () => {
+  it('can trash linked memories together with the milestone, keeping every file until purge', async () => {
     const { milestones, memories } = await openDb();
     const m = await milestones.create(milestone(), 'media/cover.jpg');
     await memories.create({ title: null, body: 'x', memoryDate: '2025-06-14', milestoneId: m.id }, [
       { filePath: 'media/a.jpg', thumbnailPath: 'media/thumbs/a.jpg' },
     ]);
     const result = await milestones.delete(m.id, { deleteLinkedMemories: true });
-    expect(result.orphanedFiles.sort()).toEqual(['media/a.jpg', 'media/cover.jpg', 'media/thumbs/a.jpg']);
+    expect(result.orphanedFiles).toEqual([]);
     expect(await memories.list()).toEqual([]);
+    expect([...(await memories.referencedFiles())].sort()).toEqual(['media/a.jpg', 'media/cover.jpg', 'media/thumbs/a.jpg']);
   });
 
   it('rejects whitespace titles at the database level too', async () => {
@@ -190,7 +193,7 @@ describe('MilestoneRepository', () => {
 });
 
 describe('MemoryRepository', () => {
-  it('creates, updates media and deletes, reporting orphaned files', async () => {
+  it('creates, updates media and trashes, reporting files that can go now', async () => {
     const { memories } = await openDb();
     const memory = await memories.create({ title: 'Lisbon', body: null, memoryDate: '2025-05-01', milestoneId: null }, [
       { filePath: 'media/a.jpg', thumbnailPath: 'media/thumbs/a.jpg' },
@@ -212,8 +215,10 @@ describe('MemoryRepository', () => {
     ]);
     expect(updated.title).toBe('Lisbon, again');
     const deletion = await memories.delete(memory.id);
-    expect(deletion.orphanedFiles.sort()).toEqual(['media/b.jpg', 'media/c.jpg']);
+    expect(deletion.orphanedFiles).toEqual([]);
     expect(await memories.get(memory.id)).toBeNull();
+    // Trashed photos stay referenced; the removed photo does not.
+    expect([...(await memories.referencedFiles())].sort()).toEqual(['media/b.jpg', 'media/c.jpg']);
   });
 
   it('lists referenced files across tables for orphan cleanup', async () => {

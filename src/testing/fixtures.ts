@@ -39,6 +39,7 @@ const STAMP = '2026-01-01T00:00:00Z';
 export function makeProfile(overrides: Partial<RelationshipProfile> = {}): RelationshipProfile {
   return {
     displayName: null,
+    selfName: null,
     relationshipLabel: null,
     startDate: '2024-06-14',
     startTime: null,

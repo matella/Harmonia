@@ -17,6 +17,7 @@ const LINKS: SettingsLink[] = [
   { route: '/settings/appearance', icon: 'color-palette-outline', title: 'settings.appearance', hint: 'settings.appearanceHint' },
   { route: '/settings/reminders', icon: 'notifications-outline', title: 'settings.reminders', hint: 'settings.remindersHint' },
   { route: '/settings/widgets', icon: 'grid-outline', title: 'settings.widgets', hint: 'settings.widgetsHint' },
+  { route: '/settings/trash', icon: 'trash-outline', title: 'settings.trash', hint: 'settings.trashHint' },
   { route: '/settings/privacy', icon: 'shield-checkmark-outline', title: 'settings.privacy', hint: 'settings.privacyHint' },
   { route: '/settings/about', icon: 'information-circle-outline', title: 'settings.about', hint: 'about.body' },
 ];

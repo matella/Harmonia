@@ -1,6 +1,6 @@
 # Partner sharing and multi-device sync (design)
 
-**Status:** design; phase 0 spike done (§15), nothing user-facing implemented. **Decided by the product owner on 2026-10-21:**
+**Status:** design; phase 0 spike done (§15); phase 1 local data model done (§16). Nothing syncs yet. **Decided by the product owner on 2026-10-21:**
 1. Online sharing uses **end-to-end encrypted sync**. The server stores only ciphertext.
 2. **Memories, photos included, are visible to every member** of the shared space.
 3. **After leaving or a breakup, each person keeps everything** they have locally.
@@ -53,12 +53,12 @@ Library: **libsodium.js** (`libsodium-wrappers`, standard build, WASM). It runs 
 | Purpose | Construction |
 |---|---|
 | Device identity | `crypto_sign` (Ed25519) for request signatures; `crypto_box` keypair (X25519) to receive keys |
-| Record encryption | `crypto_aead_xchacha20poly1305_ietf` with key `K[epoch]`, a random 24-byte nonce, and AAD = `spaceId ‖ recordType ‖ recordId ‖ epoch` |
+| Record encryption | `crypto_aead_xchacha20poly1305_ietf` with key `K[epoch]`, a random 24-byte nonce, and AAD = `spaceId ‖ recordType ‖ recordId ‖ epoch ‖ version ‖ deleted`. Authenticating the server-visible version and tombstone flag stops rollback (replaying an old ciphertext under newer metadata) and tombstone flipping. |
 | Key delivery to a device | `crypto_box_seal(K[epoch], devicePublicKey)` |
 | Photos | Per-file random key; `crypto_secretstream_xchacha20poly1305` in 64 KiB chunks (resumable, constant memory); the file key is stored inside the encrypted media record |
 | Invite secret | 32 random bytes, sent only in a URL fragment or QR code; `crypto_kdf` derives the invite key |
 | Recovery key | 184 random bits plus a 16-bit checksum, shown as grouped Crockford base32 (§8); BLAKE2b then `crypto_kdf` derive the lookup ID and the wrapping key. No password stretching is needed, which matters because the standard build has no `crypto_pwhash`. |
-| Safety code | `crypto_generichash` over both device public keys and the invite ID, shown as 6 digits on both screens |
+| Safety code | Keyed `crypto_generichash`, keyed with a subkey of the invite secret, over both devices' **signing and encryption** public keys and the invite ID. Shown as 6 digits on both screens. The server never sees the secret, so it can't swap an encryption key unnoticed or grind key pairs offline to match the digits. |
 
 **Key storage:** `@aparajita/capacitor-secure-storage` 8.x (iOS Keychain, Android Keystore). To verify in the spike:
 - the Keychain item is *ThisDeviceOnly* and excluded from iCloud backup;
@@ -88,7 +88,7 @@ Keys are decrypted into WebView memory while the app runs. That's acceptable for
 
 **Sync protocol:** a pull and push of records with `version > cursor`, paged. Records are upserted only when the version is newer. Blobs are uploaded before the record that references them.
 
-## 5. Local data model changes (migration v2)
+## 5. Local data model changes (migration v2, implemented — see §16)
 
 IDs are already random UUIDv4 (`core/persistence/ids.ts`), so no re-keying is needed.
 
@@ -225,8 +225,8 @@ The product questions (joining with existing data, edit rights and trash, partne
 
 **Crypto** (`src/app/core/sync/sync-crypto.ts`, self-test `sync-self-test.ts`):
 - Every §3 construction is implemented with libsodium-wrappers 0.8.4.
-- 21 round-trip and tamper checks run in Node (vitest). Tampering covers a record moved to another ID or epoch, the wrong key, the wrong invite secret, a recovery-key typo, and photo chunks truncated, reordered or altered.
-- The safety code is order-independent and changes if a key is swapped.
+- 26 round-trip and tamper checks run in Node (vitest). Tampering covers a record moved to another ID or epoch, replayed under a newer version or with a flipped deletion flag, the wrong key, the wrong invite secret, a recovery-key typo, and photo chunks truncated, reordered or altered.
+- The safety code is order-independent and changes if either key of a device is swapped or the invite secret differs. A post-commit security review found that the first version covered only the signing keys and didn't authenticate the version or deletion flag. Both are fixed; the in-WebView run below predates this fix.
 - **Bundle:** libsodium is a separate on-demand chunk of 434 kB (124 kB compressed). The startup bundle is unchanged (1.18 MB), so solo users never download it.
 - libsodium 0.8 ships **WebAssembly only**, with no JavaScript fallback. A WebView without WASM fails to load it, loudly.
 
@@ -271,3 +271,51 @@ The product questions (joining with existing data, edit rights and trash, partne
 - a Supabase EU project, or a working Docker for `supabase start`;
 - a decision on the domain;
 - the iOS check of the Keychain attributes and of libsodium in WKWebView.
+
+## 16. Phase 1 results: local data model (2026-10-21)
+
+Implemented with no network. Everything still runs solo.
+
+**Schema v2** (`core/persistence/migrations.ts`):
+- New tables:
+  - `persons`: the owner has `is_self` = 1; the typed partner name becomes `is_placeholder` = 1, which phase 2 replaces with the partner's own entry;
+  - `hlc_state`;
+  - `sync_state`, empty until sharing is turned on;
+  - `outbox`, one row per record, keeping its latest version.
+- New columns:
+  - `version` (hybrid logical clock) and `author_person_id` on the profile, milestones and memories;
+  - `deleted_at` on milestones, memories, photo rows and persons;
+  - `trashed_with` on memories (deleted together with a date).
+- Existing rows get `ZERO_HLC`. Person IDs are generated in SQL as valid UUIDv4. The old `relationship_profile.display_name` is moved to `persons` and then set to NULL.
+
+**Code**
+- `core/domain/hlc.ts`: format identical to the server's check; it never goes backwards, a full counter carries into the next millisecond, and state is persisted. Node IDs come from Web Crypto, so libsodium stays out of the startup bundle.
+- `core/persistence/change-journal.ts`: every write stamps a version and its author, and queues the outbox only when `sync_state` exists.
+- `core/domain/sync-schema.ts`: for every synced table, which columns are shared, local or metadata. `calendar_time_zone_id`, file paths and reminder rules never sync.
+- **Trash** (`core/persistence/trash.repository.ts`, `TrashService`, Settings › Recently deleted):
+  - Deleting is now a soft delete.
+  - Restoring a date brings back the memories trashed with it and its reminders, with the same notification IDs.
+  - "Delete forever" asks for confirmation.
+  - Items older than 30 days are purged at startup, before the orphan-photo cleanup.
+  - Trashed photos count as in use, so the cleanup never deletes them.
+  - Photos removed while editing leave a tombstone, and their file is deleted at once.
+- **Names:** the profile keeps `displayName` (the partner) and adds `selfName` (the "Your name" field in the profile editor). Both are stored in `persons`.
+- **Export** includes only active items, not the trash. The profile now also carries `selfName`; the export format version is unchanged because the field is optional.
+
+**Tests** (`persistence/sync-model.test.ts`, `domain/hlc.test.ts`, plus updated persistence tests): 14 + 7 new.
+- Upgrade from a filled v1 database: every value is kept, the placeholder person is created, IDs match UUIDv4, and rules and notification IDs are intact.
+- Upgrade from v1 before onboarding.
+- The version advances on create, update, pin, trash and restore, also when the clock goes back and after a restart. Persons get a new version only when a name actually changes.
+- Outbox: stays empty when solo; one coalesced entry per record when sharing.
+- Trash: restore, photo-cleanup safety (mutation-checked), purge at 29 versus 30+ days, delete forever, and delete-all clearing the new tables.
+- Every synced column is classified exactly once.
+
+**On the emulator** (API 37.2):
+- Installed **over** the v1 build with its data, without clearing anything. Migration 2 applied; persons were created ("Sam" as the placeholder); the profile and milestone versions are `ZERO_HLC`; the rule kept notification ID 1000; the 6 alarms are identical to before; the outbox is empty.
+- Home still reads "You and Sam".
+- Deleting the anniversary showed the trash wording and toast and cancelled its alarm. "Recently deleted" listed it. Restoring brought the alarm back with ID 1000 and a new HLC version.
+
+**Left for phase 2:**
+- When a space is purged, keep a content-free tombstone instead of removing the row.
+- Merge the placeholder partner with the real partner person on join.
+- Push and pull the outbox.

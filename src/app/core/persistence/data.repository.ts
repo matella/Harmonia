@@ -5,8 +5,9 @@ export class DataRepository {
   constructor(private readonly db: SqlDriver) {}
 
   /**
-   * Deletes every user record and setting in one transaction. The schema and the
-   * notification ID sequence are kept so IDs are never reissued to stale OS requests.
+   * Deletes every user record and setting in one transaction — including people (names),
+   * the trash, the clock, sync state and the outbox. The schema and the notification ID
+   * sequence are kept so IDs are never reissued to stale OS requests.
    */
   async deleteAll(): Promise<void> {
     await this.db.transaction(async (tx) => {
@@ -15,7 +16,11 @@ export class DataRepository {
       await tx.run('DELETE FROM reminder_rules');
       await tx.run('DELETE FROM milestones');
       await tx.run('DELETE FROM relationship_profile');
+      await tx.run('DELETE FROM persons');
       await tx.run('DELETE FROM app_settings');
+      await tx.run('DELETE FROM outbox');
+      await tx.run('DELETE FROM sync_state');
+      await tx.run('DELETE FROM hlc_state');
     });
   }
 }

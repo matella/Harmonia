@@ -75,7 +75,7 @@ Done: original icons/splash, replaceable identifiers, versioning (1.0.0), permis
 
 | Check | Command | Result |
 |---|---|---|
-| Full JS gate | `bun run check` | ✅ typecheck, lint (all files pass), 17 files / 201 tests (incl. sync crypto and server RLS), 4 files / 15 Angular specs, production build 1.18 MB initial (≈272 kB transfer), no warnings |
+| Full JS gate | `bun run check` | ✅ typecheck, lint (all files pass), 19 files / 222 tests (incl. sync crypto, server RLS, schema v2 upgrade and trash), 4 files / 15 Angular specs, production build 1.20 MB initial (≈276 kB transfer), no warnings |
 | Kotlin core | `bun run android:test` (`:harmonia-core:test`) | ✅ 9 tests (all shared vectors), re-run after `cleanTest` |
 | Android app + Wear builds | `bun run android:build`, `:wear:assembleDebug` | ✅ on AGP 9.4.1 / Gradle 9.8.1 / Kotlin 2.4.21 |
 | Android lint | `:app:lintDebug :wear:lintDebug` | ✅ 0 errors (10 + 3 warnings: API-level attributes, unused resources, style) |
@@ -121,5 +121,5 @@ Done: original icons/splash, replaceable identifiers, versioning (1.0.0), permis
 4. Signing + release builds (AAB/IPA), R8 rules, store metadata and screenshots; naming review.
 5. Native-speaker review of the French and Dutch copy (app, widgets, watch, permission prompts, store listing).
 6. Usage sharing: supply an Aptabase app key (EU) or self-hosted URL, verify ingestion, publish a privacy policy, fill the store privacy forms.
-7. Partner sharing and multi-device sync (end-to-end encrypted): designed in `docs/PARTNER_SYNC.md`; **phase 0 spike done** (§15: crypto + secure storage verified in the Android WebView, server schema/RLS tested on PGlite). Next: phase 1 local data model. Blocked for phase 2: Supabase project (or Docker), domain, iOS check.
+7. Partner sharing and multi-device sync (end-to-end encrypted): designed in `docs/PARTNER_SYNC.md`; **phase 0 spike done** (§15) and **phase 1 local data model done** (§16: schema v2 with persons, HLC versions, tombstones, outbox, 30-day trash with Settings › Recently deleted; upgrade over a real v1 install verified on the emulator). Next: phase 2 invite + core sync. Blocked for phase 2: Supabase project (or Docker), domain, iOS check.
 8. Optional next features from the spec backlog: data import from export, future-start countdown mode.

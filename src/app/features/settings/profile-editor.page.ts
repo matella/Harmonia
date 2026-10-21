@@ -51,8 +51,28 @@ import { SettingsHeaderComponent } from './settings-header.component';
           </div>
 
           <div class="hm-field">
+            <label class="hm-field__label" for="p-self">
+              {{ 'profile.selfNameLabel' | t }} <span class="hm-field__optional">{{ 'common.optional' | t }}</span>
+            </label>
+            <input
+              id="p-self"
+              class="hm-input"
+              type="text"
+              maxlength="60"
+              autocapitalize="words"
+              aria-describedby="p-self-hint"
+              [value]="selfName()"
+              (input)="selfName.set($any($event.target).value)"
+            />
+            <span id="p-self-hint" class="hm-field__hint">{{ 'profile.selfNameHint' | t }}</span>
+            @if (errors().selfName) {
+              <span class="hm-field__error" role="alert">{{ errors().selfName }}</span>
+            }
+          </div>
+
+          <div class="hm-field">
             <label class="hm-field__label" for="p-name">
-              {{ 'onboarding.nameLabel' | t }} <span class="hm-field__optional">{{ 'common.optional' | t }}</span>
+              {{ 'profile.partnerNameLabel' | t }} <span class="hm-field__optional">{{ 'common.optional' | t }}</span>
             </label>
             <input id="p-name" class="hm-input" type="text" maxlength="60" autocapitalize="words" [value]="name()" (input)="name.set($any($event.target).value)" />
             @if (errors().displayName) {
@@ -146,6 +166,7 @@ export class ProfileEditorPage implements OnInit, OnDestroy {
   private readonly clock = inject(CLOCK);
 
   protected readonly name = signal('');
+  protected readonly selfName = signal('');
   protected readonly label = signal('');
   protected readonly startDate = signal<string | null>(null);
   protected readonly withTime = signal(false);
@@ -164,6 +185,7 @@ export class ProfileEditorPage implements OnInit, OnDestroy {
     validateProfile(
       {
         displayName: this.name(),
+        selfName: this.selfName(),
         relationshipLabel: this.label(),
         startDate: this.startDate() ?? '',
         startTime: this.withTime() ? this.startTime() : null,
@@ -175,11 +197,14 @@ export class ProfileEditorPage implements OnInit, OnDestroy {
     ),
   );
 
-  protected readonly errors = computed<Record<'displayName' | 'relationshipLabel' | 'startDate' | 'startTime', string | null>>(() => {
+  protected readonly errors = computed<
+    Record<'displayName' | 'selfName' | 'relationshipLabel' | 'startDate' | 'startTime', string | null>
+  >(() => {
     const r = this.result();
-    if (r.ok) return { displayName: null, relationshipLabel: null, startDate: null, startTime: null };
+    if (r.ok) return { displayName: null, selfName: null, relationshipLabel: null, startDate: null, startTime: null };
     return {
       displayName: validationMessage(this.t, r.errors.displayName),
+      selfName: validationMessage(this.t, r.errors.selfName),
       relationshipLabel: validationMessage(this.t, r.errors.relationshipLabel),
       startDate: this.attempted() || r.errors.startDate === 'futureDate' ? validationMessage(this.t, r.errors.startDate, 'startDate') : null,
       startTime: this.attempted() ? validationMessage(this.t, r.errors.startTime) : null,
@@ -190,6 +215,7 @@ export class ProfileEditorPage implements OnInit, OnDestroy {
     const p = this.store.profile();
     if (!p) return;
     this.name.set(p.displayName ?? '');
+    this.selfName.set(p.selfName ?? '');
     this.label.set(p.relationshipLabel ?? '');
     this.startDate.set(p.startDate);
     this.withTime.set(!!p.startTime);

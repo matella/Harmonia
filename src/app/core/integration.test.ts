@@ -71,6 +71,7 @@ const anniversary = (overrides: Partial<ValidMilestone> = {}): ValidMilestone =>
 
 const profile = {
   displayName: 'Sam',
+  selfName: null,
   relationshipLabel: null,
   startDate: '2024-06-14',
   startTime: null,

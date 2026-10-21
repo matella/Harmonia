@@ -86,6 +86,71 @@ export const MIGRATIONS: readonly Migration[] = [
       )`,
     ],
   },
+  {
+    version: 2,
+    name: 'persons, versions, tombstones and trash (partner sharing phase 1)',
+    statements: [
+      // People. The device owner has is_self = 1. A partner name typed on this device is a
+      // placeholder (is_placeholder = 1) that phase 2 replaces with the partner's own entry.
+      `CREATE TABLE persons (
+        id TEXT PRIMARY KEY,
+        display_name TEXT,
+        is_self INTEGER NOT NULL DEFAULT 0 CHECK (is_self IN (0, 1)),
+        is_placeholder INTEGER NOT NULL DEFAULT 0 CHECK (is_placeholder IN (0, 1)),
+        version TEXT NOT NULL,
+        deleted_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX idx_persons_self ON persons (is_self) WHERE is_self = 1`,
+      // Versions (hybrid logical clock), authors and tombstones on every shared table.
+      `ALTER TABLE relationship_profile ADD COLUMN version TEXT NOT NULL DEFAULT '0000000000000-000000-00000000'`,
+      `ALTER TABLE relationship_profile ADD COLUMN author_person_id TEXT`,
+      `ALTER TABLE milestones ADD COLUMN version TEXT NOT NULL DEFAULT '0000000000000-000000-00000000'`,
+      `ALTER TABLE milestones ADD COLUMN author_person_id TEXT`,
+      `ALTER TABLE milestones ADD COLUMN deleted_at TEXT`,
+      `ALTER TABLE memories ADD COLUMN version TEXT NOT NULL DEFAULT '0000000000000-000000-00000000'`,
+      `ALTER TABLE memories ADD COLUMN author_person_id TEXT`,
+      `ALTER TABLE memories ADD COLUMN deleted_at TEXT`,
+      // Set when a memory went to the trash together with its date, so restoring the date restores it.
+      `ALTER TABLE memories ADD COLUMN trashed_with TEXT`,
+      `ALTER TABLE memory_media ADD COLUMN version TEXT NOT NULL DEFAULT '0000000000000-000000-00000000'`,
+      `ALTER TABLE memory_media ADD COLUMN deleted_at TEXT`,
+      `CREATE INDEX idx_milestones_deleted ON milestones (deleted_at)`,
+      `CREATE INDEX idx_memories_deleted ON memories (deleted_at)`,
+      // Local clock state, sync membership (empty until sharing is turned on) and the outbox.
+      `CREATE TABLE hlc_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        node TEXT NOT NULL,
+        last TEXT NOT NULL
+      )`,
+      `CREATE TABLE sync_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        space_id TEXT NOT NULL,
+        epoch INTEGER NOT NULL DEFAULT 1,
+        cursor INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE outbox (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        record_type TEXT NOT NULL CHECK (record_type IN ('profile', 'person', 'milestone', 'memory', 'memory_media')),
+        record_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (record_type, record_id)
+      )`,
+      // Existing data: the owner becomes a person; a typed partner name becomes a placeholder.
+      `INSERT INTO persons (id, display_name, is_self, is_placeholder, version, created_at, updated_at)
+       SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))), NULL, 1, 0, '0000000000000-000000-00000000', created_at, updated_at FROM relationship_profile`,
+      `INSERT INTO persons (id, display_name, is_self, is_placeholder, version, created_at, updated_at)
+       SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))), display_name, 0, 1, '0000000000000-000000-00000000', created_at, updated_at
+       FROM relationship_profile WHERE display_name IS NOT NULL`,
+      `UPDATE relationship_profile SET display_name = NULL`,
+      `UPDATE relationship_profile SET author_person_id = (SELECT id FROM persons WHERE is_self = 1)`,
+      `UPDATE milestones SET author_person_id = (SELECT id FROM persons WHERE is_self = 1)`,
+      `UPDATE memories SET author_person_id = (SELECT id FROM persons WHERE is_self = 1)`,
+    ],
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

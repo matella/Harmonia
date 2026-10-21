@@ -9,6 +9,7 @@ import { LifecycleService } from './lifecycle.service';
 import { thumbnailSiblings } from './profile.service';
 import { SyncService } from './sync.service';
 import { ThemeService } from './theme.service';
+import { TrashService } from './trash.service';
 import { UsageService } from './usage.service';
 
 /**
@@ -25,6 +26,7 @@ export class BootstrapService {
   private readonly media = inject(MediaStorageService);
   private readonly i18n = inject(I18nService);
   private readonly usage = inject(UsageService);
+  private readonly trash = inject(TrashService);
 
   constructor() {
     inject(ThemeService); // applies the theme as soon as settings load
@@ -58,6 +60,8 @@ export class BootstrapService {
     await this.sync.runSideEffects(true);
     this.usage.trackStart();
     try {
+      // Purge first: items older than 30 days leave the trash, then their files are orphans.
+      await this.trash.purgeExpired();
       const referenced = await this.db.repos.memories.referencedFiles();
       const withThumbs = new Set([...referenced].flatMap(thumbnailSiblings));
       await this.media.removeOrphans(withThumbs);

@@ -1,6 +1,7 @@
 import type { Clock } from '../domain/clock';
 import type { Memory, MemoryMedia } from '../domain/models';
 import type { ValidMemory } from '../domain/validation';
+import { ChangeJournal } from './change-journal';
 import type { IdFactory } from './ids';
 import type { SqlDriver, SqlExecutor, SqlRow } from './sql-driver';
 
@@ -52,12 +53,14 @@ export class MemoryRepository {
     private readonly db: SqlDriver,
     private readonly clock: Clock,
     private readonly newId: IdFactory,
+    private readonly journal: ChangeJournal = new ChangeJournal(clock),
   ) {}
 
+  /** Active memories (not in the trash) with their current photos. */
   async list(): Promise<Memory[]> {
     const [memories, media] = await Promise.all([
-      this.db.query<MemoryRow>('SELECT * FROM memories ORDER BY memory_date DESC, created_at DESC, id'),
-      this.db.query<MediaRow>('SELECT * FROM memory_media ORDER BY memory_id, sort_order, created_at'),
+      this.db.query<MemoryRow>('SELECT * FROM memories WHERE deleted_at IS NULL ORDER BY memory_date DESC, created_at DESC, id'),
+      this.db.query<MediaRow>('SELECT * FROM memory_media WHERE deleted_at IS NULL ORDER BY memory_id, sort_order, created_at'),
     ]);
     const byMemory = new Map<string, MemoryMedia[]>();
     for (const row of media) {
@@ -69,9 +72,12 @@ export class MemoryRepository {
   }
 
   async get(id: string): Promise<Memory | null> {
-    const rows = await this.db.query<MemoryRow>('SELECT * FROM memories WHERE id = ?', [id]);
+    const rows = await this.db.query<MemoryRow>('SELECT * FROM memories WHERE id = ? AND deleted_at IS NULL', [id]);
     if (!rows[0]) return null;
-    const media = await this.db.query<MediaRow>('SELECT * FROM memory_media WHERE memory_id = ? ORDER BY sort_order', [id]);
+    const media = await this.db.query<MediaRow>(
+      'SELECT * FROM memory_media WHERE memory_id = ? AND deleted_at IS NULL ORDER BY sort_order',
+      [id],
+    );
     return this.toMemory(rows[0], media.map(toMedia));
   }
 
@@ -79,55 +85,80 @@ export class MemoryRepository {
     const id = this.newId();
     const now = this.clock.now().toString();
     await this.db.transaction(async (tx) => {
+      const version = await this.journal.stamp(tx);
       await tx.run(
-        `INSERT INTO memories (id, milestone_id, title, body, memory_date, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [id, input.milestoneId, input.title, input.body, input.memoryDate, now, now],
+        `INSERT INTO memories (id, milestone_id, title, body, memory_date, created_at, updated_at, version, author_person_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, input.milestoneId, input.title, input.body, input.memoryDate, now, now, version, await this.journal.selfPersonId(tx)],
       );
       await this.appendMedia(tx, id, files, 0, now);
+      await this.journal.changed(tx, 'memory', id, version);
     });
     return (await this.get(id))!;
   }
 
-  /** Returns app-private files that are no longer referenced after the update. */
+  /**
+   * Returns app-private files that are no longer referenced after the update. Removed
+   * photos leave a tombstone row (for sync); their files can be deleted right away.
+   */
   async update(id: string, input: ValidMemory, changes: MediaChanges): Promise<{ memory: Memory; orphanedFiles: string[] }> {
     const now = this.clock.now().toString();
     const orphanedFiles = await this.db.transaction(async (tx) => {
-      const found = await tx.query<{ id: string }>('SELECT id FROM memories WHERE id = ?', [id]);
+      const found = await tx.query<{ id: string }>('SELECT id FROM memories WHERE id = ? AND deleted_at IS NULL', [id]);
       if (found.length === 0) throw new Error('Memory not found');
+      const version = await this.journal.stamp(tx);
       await tx.run(
-        'UPDATE memories SET milestone_id = ?, title = ?, body = ?, memory_date = ?, updated_at = ? WHERE id = ?',
-        [input.milestoneId, input.title, input.body, input.memoryDate, now, id],
+        `UPDATE memories SET milestone_id = ?, title = ?, body = ?, memory_date = ?, updated_at = ?,
+           version = ?, author_person_id = ? WHERE id = ?`,
+        [input.milestoneId, input.title, input.body, input.memoryDate, now, version, await this.journal.selfPersonId(tx), id],
       );
       const removed: string[] = [];
       for (const mediaId of changes.removeIds) {
-        const rows = await tx.query<MediaRow>('SELECT * FROM memory_media WHERE id = ? AND memory_id = ?', [mediaId, id]);
+        const rows = await tx.query<MediaRow>(
+          'SELECT * FROM memory_media WHERE id = ? AND memory_id = ? AND deleted_at IS NULL',
+          [mediaId, id],
+        );
         for (const row of rows) {
           removed.push(row.file_path);
           if (row.thumbnail_path) removed.push(row.thumbnail_path);
+          const mediaVersion = await this.journal.stamp(tx);
+          await tx.run('UPDATE memory_media SET deleted_at = ?, version = ? WHERE id = ?', [now, mediaVersion, row.id]);
+          await this.journal.changed(tx, 'memory_media', row.id, mediaVersion);
         }
-        await tx.run('DELETE FROM memory_media WHERE id = ? AND memory_id = ?', [mediaId, id]);
       }
-      const max = await tx.query<{ n: number | null }>('SELECT MAX(sort_order) AS n FROM memory_media WHERE memory_id = ?', [id]);
+      const max = await tx.query<{ n: number | null }>(
+        'SELECT MAX(sort_order) AS n FROM memory_media WHERE memory_id = ? AND deleted_at IS NULL',
+        [id],
+      );
       await this.appendMedia(tx, id, changes.add, (max[0]?.n ?? -1) + 1, now);
+      await this.journal.changed(tx, 'memory', id, version);
       return removed;
     });
     return { memory: (await this.get(id))!, orphanedFiles };
   }
 
+  /** Moves a memory to the trash (30 days). Its photos stay on disk until it is purged. */
   async delete(id: string): Promise<{ orphanedFiles: string[] }> {
-    return this.db.transaction(async (tx) => {
-      const media = await tx.query<MediaRow>('SELECT * FROM memory_media WHERE memory_id = ?', [id]);
-      await tx.run('DELETE FROM memories WHERE id = ?', [id]); // media rows cascade
-      return { orphanedFiles: media.flatMap((m) => (m.thumbnail_path ? [m.file_path, m.thumbnail_path] : [m.file_path])) };
+    await this.db.transaction(async (tx) => {
+      const now = this.clock.now().toString();
+      const version = await this.journal.stamp(tx);
+      await tx.run(
+        'UPDATE memories SET deleted_at = ?, trashed_with = NULL, version = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL',
+        [now, version, now, id],
+      );
+      await this.journal.changed(tx, 'memory', id, version);
     });
+    return { orphanedFiles: [] };
   }
 
-  /** Every media path referenced by the database (for safe orphan cleanup). */
+  /**
+   * Every media path still in use, for safe orphan cleanup at startup. Items in the trash
+   * count as in use (they can be restored); only photo tombstones do not.
+   */
   async referencedFiles(): Promise<Set<string>> {
     const rows = await this.db.query<{ path: string | null }>(
-      `SELECT file_path AS path FROM memory_media
-       UNION SELECT thumbnail_path FROM memory_media
+      `SELECT file_path AS path FROM memory_media WHERE deleted_at IS NULL
+       UNION SELECT thumbnail_path FROM memory_media WHERE deleted_at IS NULL
        UNION SELECT photo_path FROM milestones
        UNION SELECT photo_path FROM relationship_profile`,
     );
@@ -143,11 +174,14 @@ export class MemoryRepository {
   ): Promise<void> {
     let order = startOrder;
     for (const file of files) {
+      const id = this.newId();
+      const version = await this.journal.stamp(tx);
       await tx.run(
-        `INSERT INTO memory_media (id, memory_id, file_path, thumbnail_path, sort_order, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [this.newId(), memoryId, file.filePath, file.thumbnailPath, order++, now],
+        `INSERT INTO memory_media (id, memory_id, file_path, thumbnail_path, sort_order, created_at, version)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, memoryId, file.filePath, file.thumbnailPath, order++, now, version],
       );
+      await this.journal.changed(tx, 'memory_media', id, version);
     }
   }
 

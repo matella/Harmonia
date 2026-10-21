@@ -29,6 +29,7 @@ function configure(withDestination: boolean) {
   const store = TestBed.inject(AppStore);
   store.profile.set({
     displayName: 'Sam',
+    selfName: null,
     relationshipLabel: null,
     startDate: '2024-06-14',
     startTime: null,

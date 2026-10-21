@@ -53,6 +53,8 @@ export function normalizeOptionalText(value: string | null | undefined): string 
 
 export interface ProfileDraft {
   displayName: string | null;
+  /** Optional; older callers may omit it. */
+  selfName?: string | null;
   relationshipLabel: string | null;
   startDate: string;
   startTime: string | null;
@@ -63,6 +65,7 @@ export interface ProfileDraft {
 
 export interface ValidProfile {
   displayName: string | null;
+  selfName: string | null;
   relationshipLabel: string | null;
   startDate: IsoDate;
   startTime: LocalTime | null;
@@ -70,7 +73,7 @@ export interface ValidProfile {
   calendarTimeZoneId: string;
 }
 
-export type ProfileField = 'displayName' | 'relationshipLabel' | 'startDate' | 'startTime' | 'calendarTimeZoneId';
+export type ProfileField = 'displayName' | 'selfName' | 'relationshipLabel' | 'startDate' | 'startTime' | 'calendarTimeZoneId';
 
 export function validateProfile(
   draft: ProfileDraft,
@@ -78,8 +81,10 @@ export function validateProfile(
 ): ValidationResult<ValidProfile, ProfileField> {
   const errors: ValidationErrors<ProfileField> = {};
   const displayName = normalizeOptionalText(draft.displayName);
+  const selfName = normalizeOptionalText(draft.selfName);
   const relationshipLabel = normalizeOptionalText(draft.relationshipLabel);
   if (displayName && displayName.length > LIMITS.displayName) errors.displayName = 'tooLong';
+  if (selfName && selfName.length > LIMITS.displayName) errors.selfName = 'tooLong';
   if (relationshipLabel && relationshipLabel.length > LIMITS.relationshipLabel) {
     errors.relationshipLabel = 'tooLong';
   }
@@ -100,6 +105,7 @@ export function validateProfile(
     ok: true,
     value: {
       displayName,
+      selfName,
       relationshipLabel,
       startDate,
       startTime,

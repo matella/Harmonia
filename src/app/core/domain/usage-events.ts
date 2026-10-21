@@ -42,6 +42,7 @@ export const SCREENS = [
   'settings_reminders',
   'settings_widgets',
   'settings_privacy',
+  'settings_trash',
   'settings_about',
 ] as const;
 export type ScreenName = (typeof SCREENS)[number];
@@ -65,6 +66,7 @@ const ROUTE_SCREENS: Record<string, ScreenName> = {
   'settings/reminders': 'settings_reminders',
   'settings/widgets': 'settings_widgets',
   'settings/privacy': 'settings_privacy',
+  'settings/trash': 'settings_trash',
   'settings/about': 'settings_about',
 };
 

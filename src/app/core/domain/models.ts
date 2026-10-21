@@ -29,7 +29,10 @@ export const MILESTONE_CATEGORIES = [
 export type MilestoneCategory = (typeof MILESTONE_CATEGORIES)[number];
 
 export interface RelationshipProfile {
+  /** The partner's name (from `persons`): the placeholder typed here, or, once shared, their own. */
   displayName: string | null;
+  /** The device owner's own name, shown as "Matthieu & Sam" once sharing exists. */
+  selfName: string | null;
   relationshipLabel: string | null;
   startDate: IsoDate;
   startTime: LocalTime | null;
@@ -40,6 +43,29 @@ export interface RelationshipProfile {
   photoPath: string | null;
   createdAt: IsoInstant;
   updatedAt: IsoInstant;
+}
+
+/** A member of the relationship. Exactly one person is the device owner (`isSelf`). */
+export interface Person {
+  id: string;
+  displayName: string | null;
+  isSelf: boolean;
+  /** A partner name typed on this device, to be replaced by the partner's own once they join. */
+  isPlaceholder: boolean;
+}
+
+/** An item in "Recently deleted" (kept 30 days, then purged). */
+export interface TrashItem {
+  kind: 'milestone' | 'memory';
+  id: string;
+  /** Milestone title or memory title (null for an untitled memory). */
+  title: string | null;
+  /** Event or memory date. */
+  date: string;
+  deletedAt: IsoInstant;
+  /** For a milestone: memories that went to the trash with it and come back with it. */
+  memoryCount: number;
+  photoCount: number;
 }
 
 export interface Milestone {
