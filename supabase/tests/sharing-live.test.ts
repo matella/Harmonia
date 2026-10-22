@@ -23,7 +23,12 @@ async function device(url: string, key: string): Promise<SupabaseClient> {
   const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
   const { error: authError } = await client.auth.signInAnonymously();
   if (authError) throw authError;
-  const { error } = await client.from('devices').insert({ sign_public_key: hex(random(32)), box_public_key: hex(random(32)), platform: 'android' });
+  const { error } = await client.rpc('register_device', {
+    sign_key: hex(random(32)),
+    box_key: hex(random(32)),
+    device_platform: 'android',
+    credential: hex(random(32)),
+  });
   if (error) throw error;
   return client;
 }

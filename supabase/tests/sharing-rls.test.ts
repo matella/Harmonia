@@ -36,7 +36,7 @@ const q = <R = Record<string, unknown>>(sql: string, params: unknown[] = []) => 
 
 async function register(user: User, seed: number) {
   await as(user, () =>
-    q(`insert into devices (sign_public_key, box_public_key, platform) values ($1, $2, 'android')`, [bytes(seed), bytes(seed + 100)]),
+    q(`select register_device($1, $2, 'android', $3)`, [bytes(seed), bytes(seed + 100), bytes(seed + 200)]),
   );
 }
 

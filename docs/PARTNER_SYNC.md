@@ -71,7 +71,7 @@ Keys are decrypted into WebView memory while the app runs. That's acceptable for
 **Recommended:** Supabase, EU region (Frankfurt), used as a store for encrypted data plus a few Edge Functions. Self-hosting (Postgres + S3-compatible storage + a small Bun service) is the fallback. The API is kept small so it can move.
 
 **Device authentication**
-- Supabase anonymous sign-in gives each device a JWT. The **device's Ed25519 key is the real identity**: the server binds the JWT to a registered device public key, and membership changes require a signed request. An anonymous session is lost on reinstall; the device identity in secure storage is not.
+- Supabase anonymous sign-in gives each device a JWT. The **device's keys are the real identity**; the JWT is only the transport credential, and the session is kept in the secure store. If it is lost or expired, the device signs in anonymously again and **re-attaches** its device row by proving a random 32-byte secret that only it holds (the server stores its SHA-256, and the secret is replaced on every re-attach). As built in phase 2 this replaces the signed challenge planned here, because Postgres cannot verify Ed25519 signatures without an extra service; signed requests for membership changes remain an option (§17).
 - Abuse protection comes from Play Integrity and App Attest, or captcha, plus rate limits on registration and invites. Abandoned anonymous users and devices are cleaned up after 180 days without a sync.
 
 **Tables** (row-level security limits every row to devices that are members of its space):
@@ -349,10 +349,9 @@ Slice 1 of 4 (see the slices below). No network yet: the engine runs against an 
 - `sync-engine.ts`: pull, push, pull.
   - Records are sealed with AAD v2 (§3). Anything that fails to decrypt, is not exactly the shared columns of its type, breaks the editors' own rules (`sync-payload-rules.ts`: categories, dates, times, zones, lengths, author ID; the start date may be "in the future" because the partner's today can be ahead), has a tombstone flag that contradicts its payload, or is refused by the local schema is **rejected and skipped**; sync never stalls on it.
   - The server skips stale writes silently, so after each push the engine reads back the stored versions. A change that lost to a newer one is counted as `superseded`, and the following pull applies the winner and clears the entry.
-  - A local record the server could not store (an ID that is not a UUID) is never sent, because one such row would fail the whole request on every sync; it stays local and is counted as `unsendable`. The in-memory server refuses the same rows.
   - The report lists the record types that changed, so the app can reload and reconcile reminders and widgets afterwards (persist first, then side effects).
 - **Updates that accept more** (migration 3, `sync_state.capability`): records a build refuses (an unknown type such as memories before phase 5, a new payload format, a new category, a longer limit) would otherwise stay behind the cursor for good. Each build declares `SYNC_CAPABILITY`; raise it whenever a build starts accepting something an older one refused. A device whose stored capability is lower pulls everything once more (unchanged records are no-ops).
-- **Cursor gap:** Postgres numbers a write when it happens, but the write becomes visible when its transaction commits. A slow transaction can therefore appear behind a device's cursor. The engine re-reads the last 50 change numbers on every pull (no-op applies). Slice 2 fixes this on the server.
+- **Cursor gap:** Postgres numbers a write when it happens, but the write becomes visible when its transaction commits. A slow transaction can therefore appear behind a device's cursor. The engine re-reads the last 50 change numbers on every pull (no-op applies). Slice 2 fixed this on the server (see below); the overlap stays as a safety margin.
 
 **Tests** (`sync/sync-engine.test.ts`, two sql.js devices, 11 tests):
 - Profile, both names and dates arrive. The receiver keeps its own calendar zone, gets no photo path and no reminders, and nothing is echoed back. Decrypted server payloads contain no local column.
@@ -367,8 +366,39 @@ Slice 1 of 4 (see the slices below). No network yet: the engine runs against an 
 - A placeholder partner is never uploaded.
 - A record with an ID the server cannot store stays local while the rest is pushed.
 
+### Slice 2: Supabase transport and device sessions (2026-10-22)
+
+**Server** (`supabase/migrations/20261022000000_device_sessions.sql`):
+- `register_device(sign_key, box_key, device_platform, credential)`: the only way to add a device (the direct-insert policy is gone). Retrying with the same keys returns the same device, so a lost reply is harmless.
+- `device_credentials`: the SHA-256 of each device's re-attach secret. Row-level security with no policies: not even the device can read it.
+- `rebind_device(device, secret, next_credential)`: moves a device row to the calling anonymous user if the secret matches, and installs the next credential. A revoked device cannot come back; a user cannot hold two devices.
+- **Ordered change numbers:** the record triggers take a per-space advisory lock before drawing a number and hold it until commit, so one space's writes become visible in number order and a pull can never step over a slow transaction. (A transaction-ID filter, considered in slice 1, does not give this guarantee when one transaction writes several rows.) Different spaces never wait for each other.
+
+**Client** (`core/sync`, `core/platform/sync-config.ts`):
+- `SYNC_CONFIG` is `null`: until a server is configured, sharing does not exist in the app and makes no request.
+- `SupabaseTransport`: push (upsert; the server keeps the newest), versions (in chunks of 50 IDs), and pull by change number, all under row-level security. Errors carry only the operation and the server's code. A malformed byte value from the server gets that record rejected, not the whole pull. In the other direction, the engine never sends a record the server's table would refuse (an ID that is not a UUID): one such row would fail the whole request on every sync, so it stays local and is counted as `unsendable`. All local IDs are UUIDs today; this guards a future import that keeps IDs from a file. The in-memory server refuses the same rows, so the two-device tests match production.
+- `DeviceSession`: creates the device keys once, keeps the Supabase session in the secure store, then registers or re-attaches. It uses **one Supabase client per session**: several clients sharing one stored session would each refresh the same rotating refresh token and sign each other out. Every secret is stored locally *before* the server sees it: if the app stops after the server accepted a new secret, the next start promotes the pending one and retries. Only a session the server refuses (JWT errors) leads to a fresh sign-in; being offline keeps the session. New keys always start a fresh anonymous user. A revoked device reports `DeviceLostError`.
+
+**Tests**
+- PGlite (`supabase/tests/device-sessions.test.ts`, 6): retry-safe registration, no direct inserts, credentials unreadable, re-attach with a wrong, spent or rotated secret, revoked devices, numbering of upserts and stale writes.
+- Live local Supabase in Docker (`supabase/tests/sync-live.test.ts`, 4, run with `SUPABASE_LIVE=1`):
+  - two devices register (one client per session, reused across `connect()` calls), share through a space and invite, and sync dates both ways through PostgREST; the server holds no plaintext;
+  - a restart resumes the same anonymous user; a lost session re-attaches the same device under a new user, and sync continues;
+  - recovery when the server took a new secret that the device did not save;
+  - a revoked device is reported lost;
+  - a second writer in the same space waits for the first to commit, and gets the higher number.
+- `core/sync/encoding.test.ts`: base64, bytea and SHA-256.
+
+**Found for slice 3 (invite screens):**
+- `approve_invite` seals the space key to the joiner, but the inviter cannot read the joiner's device row before approval (row-level security). The invite needs to expose the claimed device's public keys to the inviter, which the safety code then covers.
+- `claim_invite` returns the invite envelope before approval, so whoever holds the link gets the space key before the inviter approves; only row-level security keeps them out. Return the envelope only after approval, or drop it and rely on the sealed key.
+
+- **Upgraded profiles share one version.** Every device upgraded from v1 has the profile at `ZERO_HLC`, and the profile has the same server ID everywhere. If neither person edited it since, the joiner's push is skipped as not newer, and then confirmed as pushed because the versions are equal. The two devices would silently keep different start dates. The join flow must not upload the joiner's profile as is: the space's profile wins unless the joiner chooses their own date (§6.2), which then needs a fresh version.
+
+**Found for slice 4 (wiring):**
+- `DeviceSession` reads "no stored keys" as "new device" and starts over. Check what the secure-storage plugin returns while the phone is locked (iOS `whenUnlockedThisDeviceOnly`, during a background sync): if it is `null` rather than an error, the device would discard its own identity. Sync must not start while protected data is unavailable.
+
 **Next slices:**
-2. Supabase transport, device registration and session persistence (secure store), the rebind RPC, and the server-side fix for the cursor gap.
 3. Invite, approval and safety-code screens; replace the placeholder partner with the partner's own person on join, and settle the start date if the two differ (§6.2).
 4. Wire the engine into the app (start, resume, after local changes). Android's debug-only route to the local Supabase stack (`10.0.2.2`) needs cleartext allowed in debug builds only.
 
