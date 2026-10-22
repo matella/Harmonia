@@ -104,7 +104,7 @@ IDs are already random UUIDv4 (`core/persistence/ids.ts`), so no re-keying is ne
   - widget and watch snapshots;
   - media file paths. Each device writes its own decrypted copy, and the files are synced as encrypted blobs.
 - **Profile:** the start date, optional start time and its zone, and the relationship label are shared. `display_name` is replaced by **persons**, and the UI shows "Matthieu & Sam". The device's own person can show "You" where the wording needs it.
-- **Clock:** a hybrid logical clock (wall time, counter, device ID). Last write wins **per field** for the profile and milestones, and per record otherwise. A delete is a tombstone; when a delete and an edit happen at the same time, the delete wins. Deleted items stay recoverable for 30 days (§6.6). Media in a memory are separate records, so adding and removing photos never conflict.
+- **Clock:** a hybrid logical clock (wall time, counter, device ID). **v1: the newest version of a whole record wins** (changed from per-field during phase 2, see §17). A delete is a tombstone, and trashing and restoring are ordinary versioned writes, so between a delete and an edit the newer one wins too; an item is never lost because it sits in the trash for 30 days (§6.6). Per-field merging for the profile and milestones can come later without a format change, because records stay whole. Media in a memory are separate records, so adding and removing photos never conflict.
 
 ## 6. Flows
 
@@ -328,3 +328,49 @@ Implemented with no network. Everything still runs solo.
 - When a space is purged, keep a content-free tombstone instead of removing the row.
 - Merge the placeholder partner with the real partner person on join.
 - Push and pull the outbox.
+
+## 17. Phase 2 progress: sync engine core (2026-10-22)
+
+Slice 1 of 4 (see the slices below). No network yet: the engine runs against an in-memory server that behaves like the Supabase `records` table and its triggers.
+
+**Code** (`core/sync`, framework-free):
+- `sync-crypto-port.ts`: the `SyncCrypto` interface. The engine and UI depend only on it, so the libsodium backend can be swapped (for example for a pure-JS one, if WebAssembly fails on real iPhones, §15) in one place.
+- `sync-store.ts`: the local side.
+  - Payloads hold the shared columns plus author and `deleted_at`, never local columns (zones, file paths, `is_self`, timestamps).
+  - Applying a remote record writes it only if its version is newer, without entering the outbox (no echo), and advances the local clock past it (`ChangeJournal.observe`), so the next local edit orders after it even on a slow device clock.
+  - Local-only columns get defaults on first arrival; the calendar zone is the device's own.
+  - Received dates have **no reminder rules**.
+  - The single profile row is `PROFILE_RECORD_ID` on the server.
+  - An outbox entry is removed only if its version did not change while it was being pushed.
+  - Joining a space and queueing everything already on the device for upload happen in one transaction.
+  - A **placeholder partner** (a name typed on this device) is never uploaded; the partner's own person replaces it when they join. Until slice 3 links the two, the placeholder stays only on the device where it was typed.
+  - A remote tombstone for this device's owner is refused (it would also break saving the profile).
+- `sync-transport.ts`: the `SyncTransport` interface (push, versions, pull by cursor) and `InMemoryTransport`.
+- `sync-engine.ts`: pull, push, pull.
+  - Records are sealed with AAD v2 (§3). Anything that fails to decrypt, is not exactly the shared columns of its type, breaks the editors' own rules (`sync-payload-rules.ts`: categories, dates, times, zones, lengths, author ID; the start date may be "in the future" because the partner's today can be ahead), has a tombstone flag that contradicts its payload, or is refused by the local schema is **rejected and skipped**; sync never stalls on it.
+  - The server skips stale writes silently, so after each push the engine reads back the stored versions. A change that lost to a newer one is counted as `superseded`, and the following pull applies the winner and clears the entry.
+  - A local record the server could not store (an ID that is not a UUID) is never sent, because one such row would fail the whole request on every sync; it stays local and is counted as `unsendable`. The in-memory server refuses the same rows.
+  - The report lists the record types that changed, so the app can reload and reconcile reminders and widgets afterwards (persist first, then side effects).
+- **Updates that accept more** (migration 3, `sync_state.capability`): records a build refuses (an unknown type such as memories before phase 5, a new payload format, a new category, a longer limit) would otherwise stay behind the cursor for good. Each build declares `SYNC_CAPABILITY`; raise it whenever a build starts accepting something an older one refused. A device whose stored capability is lower pulls everything once more (unchanged records are no-ops).
+- **Cursor gap:** Postgres numbers a write when it happens, but the write becomes visible when its transaction commits. A slow transaction can therefore appear behind a device's cursor. The engine re-reads the last 50 change numbers on every pull (no-op applies). Slice 2 fixes this on the server.
+
+**Tests** (`sync/sync-engine.test.ts`, two sql.js devices, 11 tests):
+- Profile, both names and dates arrive. The receiver keeps its own calendar zone, gets no photo path and no reminders, and nothing is echoed back. Decrypted server payloads contain no local column.
+- Edits flow both ways; concurrent edits settle on the newer one on both devices.
+- A push skipped as stale is detected, and the newer version is taken.
+- Trash and restore travel to the other device.
+- HLC ordering with a device clock an hour behind.
+- Records with the wrong key, an extra column, a blank title, an unknown category, an impossible date, an unknown zone, a malformed author, a wrong value type, an unknown payload format, a contradictory tombstone or a foreign profile ID are rejected, and the valid record after them still arrives.
+- A write that becomes visible behind the cursor is still pulled.
+- After an update with a higher capability, a date an older build refused arrives, and the full re-pull happens only once.
+- A tombstone for the device owner is refused, and the profile can still be saved.
+- A placeholder partner is never uploaded.
+- A record with an ID the server cannot store stays local while the rest is pushed.
+
+**Next slices:**
+2. Supabase transport, device registration and session persistence (secure store), the rebind RPC, and the server-side fix for the cursor gap.
+3. Invite, approval and safety-code screens; replace the placeholder partner with the partner's own person on join, and settle the start date if the two differ (§6.2).
+4. Wire the engine into the app (start, resume, after local changes). Android's debug-only route to the local Supabase stack (`10.0.2.2`) needs cleartext allowed in debug builds only.
+
+**Still open from phase 1:**
+- "Delete forever" and the 30-day purge remove the row locally but do not reach the other device yet. They need a content-free tombstone that syncs.

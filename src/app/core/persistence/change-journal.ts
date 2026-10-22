@@ -1,5 +1,5 @@
 import type { Clock } from '../domain/clock';
-import { newHlcNode, tickHlc, type Hlc } from '../domain/hlc';
+import { newHlcNode, observeHlc, tickHlc, type Hlc } from '../domain/hlc';
 import type { SyncedRecordType } from '../domain/sync-schema';
 import type { SqlExecutor } from './sql-driver';
 
@@ -18,7 +18,9 @@ export class ChangeJournal {
   ) {}
 
   async stamp(tx: SqlExecutor): Promise<Hlc> {
-    const rows = await tx.query<{ node: string; last: string }>('SELECT node, last FROM hlc_state WHERE id = 1');
+    const rows = await tx.query<{ node: string; last: string }>(
+      'SELECT node, last FROM hlc_state WHERE id = 1',
+    );
     const node = rows[0]?.node ?? this.newNode();
     const next = tickHlc(rows[0]?.last ?? null, this.clock.now().epochMilliseconds, node);
     await tx.run(
@@ -27,6 +29,28 @@ export class ChangeJournal {
       [node, next],
     );
     return next;
+  }
+
+  /**
+   * Folds a version received from another device into the local clock, so the next
+   * local change is ordered after it. Used when applying remote records (no outbox).
+   */
+  async observe(tx: SqlExecutor, remote: Hlc): Promise<void> {
+    const rows = await tx.query<{ node: string; last: string }>(
+      'SELECT node, last FROM hlc_state WHERE id = 1',
+    );
+    const node = rows[0]?.node ?? this.newNode();
+    const next = observeHlc(
+      rows[0]?.last ?? null,
+      remote,
+      this.clock.now().epochMilliseconds,
+      node,
+    );
+    await tx.run(
+      `INSERT INTO hlc_state (id, node, last) VALUES (1, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET last = excluded.last`,
+      [node, next],
+    );
   }
 
   async changed(tx: SqlExecutor, type: SyncedRecordType, id: string, version: Hlc): Promise<void> {

@@ -151,6 +151,16 @@ export const MIGRATIONS: readonly Migration[] = [
       `UPDATE memories SET author_person_id = (SELECT id FROM persons WHERE is_self = 1)`,
     ],
   },
+  {
+    version: 3,
+    name: 'sync capability (partner sharing phase 2)',
+    statements: [
+      // Which record types, payload format and rules this device could accept when it last
+      // pulled. When an update raises it, the device pulls everything once more, so records
+      // an older version had to refuse are not lost.
+      `ALTER TABLE sync_state ADD COLUMN capability INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
@@ -182,7 +192,9 @@ export interface MigrationResult {
 }
 
 export async function currentSchemaVersion(driver: SqlDriver): Promise<number> {
-  const rows = await driver.query<{ version: number | null }>('SELECT MAX(version) AS version FROM schema_migrations');
+  const rows = await driver.query<{ version: number | null }>(
+    'SELECT MAX(version) AS version FROM schema_migrations',
+  );
   return rows[0]?.version ?? 0;
 }
 
@@ -218,7 +230,11 @@ export async function migrate(
         ]);
       });
     } catch (error) {
-      throw new MigrationError(migration.version, migration.name, error instanceof Error ? error.message : String(error));
+      throw new MigrationError(
+        migration.version,
+        migration.name,
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
   return { from, to: Math.max(from, latest) };
