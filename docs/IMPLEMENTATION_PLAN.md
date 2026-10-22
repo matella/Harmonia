@@ -1,6 +1,6 @@
 # Implementation plan and status
 
-Last updated: 2026-10-18. Legend: **Done** = implemented; **Tested** = automated tests pass; **Verified** = exercised on an Android emulator (phone API 36.1, later API 37.2 with 16 KB pages; Wear OS 7 / API 37) or in the browser preview; **Unverified** = written but not compiled/run here; **Blocked** = needs a resource not available in this environment.
+Last updated: 2026-10-22. Legend: **Done** = implemented; **Tested** = automated tests pass; **Verified** = exercised on an Android emulator (phone API 36.1, later API 37.2 with 16 KB pages; Wear OS 7 / API 37) or in the browser preview; **Unverified** = written but not compiled/run here; **Blocked** = needs a resource not available in this environment.
 
 ## Environment (Phase 0)
 
@@ -11,7 +11,7 @@ Last updated: 2026-10-18. Legend: **Done** = implemented; **Tested** = automated
 | Android SDK | platforms 36, 37.0, 37.2; AVDs `Medium_Phone` (API 37.2, Play, 16 KB pages) and `Wear_OS_XL_Round` (Wear OS 7, API 37) | compileSdk 37, targetSdk 36 |
 | Android build | AGP 9.4.1, Gradle 9.8.1, Kotlin 2.4.21, Compose BOM 2026.09.00, Wear Compose 1.7.1 | `android.builtInKotlin=false` + `android.newDsl=false` because Capacitor 8 plugins still use the Kotlin plugin and legacy variant API |
 | JDK | Android Studio JBR **25** only (no JDK 17/21 on PATH) | Gradle runs on 25; Foojay provisions JDK 21 toolchain for Capacitor plugins |
-| macOS / Xcode / Swift | **Not available** (Windows 11) | iOS & watchOS cannot be compiled or simulated here |
+| macOS / Xcode / Swift | Windows 11: not available. Mac (2026-10-22): Intel, macOS 15.8.1, Xcode 26.3, Swift 6.2.4, Node 24.22.1 | iOS 26.3 + watchOS 26.2 simulators (iPhone 17 paired with Apple Watch Series 11); no real devices |
 
 ## Phase status
 
@@ -44,11 +44,11 @@ CLAUDE.md, README, docs (ARCHITECTURE, DATE_AND_TIME_RULES, WIDGET_SNAPSHOT, IOS
 
 ### Phase 5 — Phone widgets
 - **Android — Done, Tested, Verified:** small (2×2) and medium (4×2) RemoteViews widgets, per-instance configuration activity, privacy modes, deep links, day-boundary inexact alarm + `updatePeriodMillis` + clock/locale/boot receivers, placeholder state. Verified: gallery previews (placeholder), live values, privacy/counter change propagates immediately, renders after process death, tap opens Home, delete-all shows placeholder.
-- **iOS — Done, Unverified (Blocked: no macOS/Xcode):** bridge plugin wired into the Xcode project (App Group write + `reloadAllTimelines` + WatchConnectivity); WidgetKit extension sources for systemSmall/Medium and accessoryCircular/Rectangular/Inline with App Intent configuration and 7-day timelines; target creation steps in IOS_SETUP.md.
+- **iOS — Done, Verified on the iOS 26.3 simulator:** bridge plugin (App Group write + `reloadAllTimelines` + WatchConnectivity); WidgetKit extension for systemSmall/Medium and accessoryCircular/Rectangular/Inline with App Intent configuration and 7-day timelines. The `HarmoniaWidget`, `HarmoniaWatch` and `HarmoniaWatchWidget` targets are now in `App.xcodeproj` (IOS_SETUP.md §2). Verified: snapshot in the App Group with only the documented fields; small and medium Home Screen widgets and circular/rectangular Lock Screen widgets show live values; Discreet → Everything updates them immediately; tapping opens Home. **Not verified:** placeholder without a profile, inline family, the configuration intent, midnight refresh, dark mode, Dynamic Type, a real iPhone.
 
 ### Phase 6 — Watch capabilities
 - **Wear OS — Done, Verified on the Wear OS 7 emulator (except live Data Layer sync):** Data Layer listener, complication data source (short text, long text, monochromatic image; 7-day timeline; placeholder fallback), Compose for Wear OS screen with "Open on phone" (berry button). Verified: placeholder screen without data; with the phone's real snapshot copied into the watch cache (privacy "Everything") the screen shows "2 years, 4 months, 4 days / 856 days together / Our anniversary, in 239 days" — identical to the phone; "Days together · Harmonia" appears in the watch-face complication picker, renders 856 with the rings mark on the face, and tapping it opens the app. **Not verified:** phone → watch delivery over the Data Layer (pairing the emulators needs the Wear OS companion app and a Google sign-in on the phone).
-- **watchOS — Done, Unverified (Blocked: no macOS/Xcode):** SwiftUI watch app (WatchConnectivity receiver, App Group cache, Handoff), WidgetKit complications (circular, corner, rectangular, inline).
+- **watchOS — Done, Verified on the watchOS 26.2 simulator:** SwiftUI watch app (WatchConnectivity receiver, App Group cache, Handoff), WidgetKit complications (circular, corner, rectangular, inline). Verified: placeholder without data, then the phone's snapshot over WatchConnectivity ("4 years, 4 months, 4 days / 1,587 days together"), the privacy change reaches the watch, the circular complication renders on Infograph. **Not verified:** corner/rectangular/inline families, a real watch. The watch app has no app icon asset yet (generic icon in the complication picker).
 
 ### Phase 7 — Settings, export, accessibility, hardening — Done (device accessibility audit pending)
 - Settings: profile, appearance (theme, accent, counter, leap policy), reminders (permission state, defaults, recheck), widgets & watch (privacy, counter, live preview), privacy & data (statement, ZIP export with photos, delete everything), about/licences.
@@ -60,8 +60,8 @@ Done: original icons/splash, replaceable identifiers, versioning (1.0.0), permis
 
 ### Post-1.0 — Milestones together and French/Dutch — Done, Tested, partly Verified (Android)
 - **Milestones together** (`core/domain/together-milestones.ts`): 1, 3, 6, 9 months then every half year (or every month, or off), plus 100/200/300/500 days then every 500 (toggle). Derived from the start date with the counter's month rule; whole years skipped when the yearly anniversary exists. Shown on Home (whichever comes first; a user date wins a tie), in Dates (next one, also before any date exists) and on the counter detail (next four); up to 2 in the widget snapshot; optional reminders (off by default, reserved notification-ID range, discreet copy unless titles are allowed). Settings in Appearance and Reminders.
-- **Languages**: complete French ("vous") and Dutch ("je"/"jullie"; reminders = "meldingen", memories = "herinneringen") catalogs, **drafts pending native-speaker review**. Language setting (Match the device / English / Français / Nederlands) in Appearance, applied before first render; formatting locale keeps the device region. Android `values-fr`/`values-nl` for widgets, configuration and Wear OS, plus Android 13+ per-app language (`locales_config.xml`). iOS: fr/nl in the three String Catalogs, `InfoPlist.xcstrings` for permission prompts, `CFBundleLocalizations` and project `knownRegions` (**uncompiled — no Mac**).
-- Viewed on emulators: Home, Dates, counter detail, Appearance and Reminders settings, medium widget (French), Wear OS app screen (French). **Not viewed:** small widget, widget configuration screen and Wear complication in French/Dutch, Dutch widget, iOS anything.
+- **Languages**: complete French ("vous") and Dutch ("je"/"jullie"; reminders = "meldingen", memories = "herinneringen") catalogs, **drafts pending native-speaker review**. Language setting (Match the device / English / Français / Nederlands) in Appearance, applied before first render; formatting locale keeps the device region. Android `values-fr`/`values-nl` for widgets, configuration and Wear OS, plus Android 13+ per-app language (`locales_config.xml`). iOS: fr/nl in the three String Catalogs, `InfoPlist.xcstrings` for permission prompts, `CFBundleLocalizations` and project `knownRegions` (verified on the iOS/watchOS simulators in French and Dutch, including the camera permission prompt).
+- Viewed on emulators: Home, Dates, counter detail, Appearance and Reminders settings, medium widget (French), Wear OS app screen (French). **Not viewed:** small widget, widget configuration screen and Wear complication in French/Dutch, Dutch widget. iOS (simulator): Home, watch app and the camera permission prompt in French and Dutch.
 - Tests: 23 together-milestone tests (incl. counter-agreement properties for month-end and Feb 29 starts), 5 together-reminder tests, 2 snapshot tests, catalog parity tests (keys, plural/string kind, placeholders) and FR/NL formatting tests, and a Dates component spec (milestone together shown with no dates yet).
 
 ### Post-1.0 — Opt-in anonymous usage sharing — Done, Tested, partly Verified (Android); **Blocked: needs an Aptabase app key or self-hosted URL**
@@ -90,8 +90,11 @@ Done: original icons/splash, replaceable identifiers, versioning (1.0.0), permis
 | Android lint with translations | `:app:lintDebug :wear:lintDebug` | ✅ 0 errors after marking fixed strings `translatable="false"` (French "jour" label: `ImpliedQuantity` suppressed — correct for a label beside a separate number) |
 | Bun dev server | `bunx ng serve` (`.claude/launch.json`) | ✅ serves the app; file watching rebuilds on change (prebuilt `@parcel/watcher-win32-x64`) |
 | Earlier Android checks (API 36.1, before the upgrade) | manual via adb | ✅ time-zone change, reboot, edit milestone (no duplicate alarms), time picker + precise counter, dark mode, export ZIP, small widget, widget refresh/reboot paths (Phase 5) — not repeated after the upgrade |
-| Swift `HarmoniaCore` tests | `swift test` | ⛔ not run (no Swift toolchain) |
-| iOS / watchOS builds | Xcode | ⛔ not run (no macOS); `@capacitor/text-zoom` iOS path and the Swift `monthDay` fix are therefore uncompiled |
+| Swift `HarmoniaCore` tests | `swift test` (Xcode 26.3) | ✅ 7 tests: all 26 duration + 12 annual shared vectors, glance/privacy/timeline |
+| iOS / watchOS builds | `xcodebuild -scheme App` (Debug, simulator) | ✅ App + widget + watch app + complications build without warnings in our sources; all four bundles carry the App Group; `CapApp-SPM/Package.swift` re-synced (was missing secure-storage and text-zoom) |
+| iOS app on the simulator | iPhone 17, iOS 26.3 | ✅ onboarding (start date, name, anniversary) → Home "4 years 4 months 4 days / 1,587 days"; data survives relaunch and reinstall; header was under the status bar until `viewport-fit=cover` was added to `src/index.html` |
+| iOS Keychain (secure storage) | WKWebView → plugin, keychain DB inspected | ✅ survives relaunch, `pdmn=aku` (when unlocked, this device only), `sync=0`, value encrypted; removal leaves no item |
+| libsodium in WKWebView | `__harmoniaSyncSpike.selfTest()` | ⛔ WebContent process crashes in JavaScriptCore's Wasm signal handler on the Intel-Mac iOS simulator (IOS_SETUP.md §4); needs a real iPhone or Apple-silicon Mac |
 
 ## Known limitations
 
@@ -106,20 +109,21 @@ Done: original icons/splash, replaceable identifiers, versioning (1.0.0), permis
 - The in-app language override changes the app, notifications and derived widget titles, but native widget/watch labels follow the device (or Android per-app) language, so they can differ until both match.
 - Reminders for milestones together schedule only the next month mark and next day mark per offset; later ones are planned on the next launch.
 - Export builds the ZIP in memory; very large photo libraries may need streaming.
+- `sync-crypto.test.ts` takes 4.8–6.8 s on an Intel i9 Mac, around Vitest's 5 s default timeout, so it can fail there.
 
 ## Manual verification still required
 
-1. macOS: everything in `docs/IOS_SETUP.md` §6.
+1. iOS: the unchecked items in `docs/IOS_SETUP.md` §5, then a real iPhone + Apple Watch (signing team, App Group in the developer portal).
 2. Wear OS: pair the phone and watch emulators (Android Studio → Device Manager → Pair Wearable; needs the Wear OS app and a Google account on the phone) and confirm a privacy change on the phone reaches the watch; then a real watch.
 3. Devices: TalkBack/VoiceOver, large fonts, dark mode widgets, airplane mode, time-zone/DST changes with pending reminders, reboot (reminders restored, widget day boundary).
 
 ## Next concrete steps
 
-1. On a Mac: run `swift test`, add the three Xcode targets per IOS_SETUP.md, fix any compile issues, verify widgets/watch.
+1. iOS: run the libsodium WKWebView check on a real iPhone or Apple-silicon Mac; finish IOS_SETUP.md §5 (reminders, delete-all placeholder, export, remaining widget/complication families); add a watch app icon.
 2. Pair phone + watch and verify Data Layer sync end to end; re-run the reboot/time-zone/widget-refresh checks on API 37.2.
 3. Device accessibility pass; fix findings.
 4. Signing + release builds (AAB/IPA), R8 rules, store metadata and screenshots; naming review.
 5. Native-speaker review of the French and Dutch copy (app, widgets, watch, permission prompts, store listing).
 6. Usage sharing: supply an Aptabase app key (EU) or self-hosted URL, verify ingestion, publish a privacy policy, fill the store privacy forms.
-7. Partner sharing and multi-device sync (end-to-end encrypted): designed in `docs/PARTNER_SYNC.md`; **phase 0 spike done** (§15) and **phase 1 local data model done** (§16: schema v2 with persons, HLC versions, tombstones, outbox, 30-day trash with Settings › Recently deleted; upgrade over a real v1 install verified on the emulator). Next: phase 2 invite + core sync. Blocked for phase 2: Supabase project (or Docker), domain, iOS check.
+7. Partner sharing and multi-device sync (end-to-end encrypted): designed in `docs/PARTNER_SYNC.md`; **phase 0 spike done** (§15) and **phase 1 local data model done** (§16: schema v2 with persons, HLC versions, tombstones, outbox, 30-day trash with Settings › Recently deleted; upgrade over a real v1 install verified on the emulator). Next: phase 2 invite + core sync. Blocked for phase 2: Supabase project (or Docker), domain, libsodium in WKWebView on a real iPhone (Keychain attributes verified on the simulator).
 8. Optional next features from the spec backlog: data import from export, future-start countdown mode.

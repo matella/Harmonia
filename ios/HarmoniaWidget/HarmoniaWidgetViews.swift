@@ -207,9 +207,11 @@ struct HarmoniaAccessoryView: View {
             ZStack {
                 AccessoryWidgetBackground()
                 VStack(spacing: 0) {
-                    Text(WidgetText.days(c.totalDays)).font(.system(.title3, design: .serif)).minimumScaleFactor(0.5).monospacedDigit()
+                    Text(WidgetText.days(c.totalDays)).font(.system(.title3, design: .serif)).lineLimit(1).minimumScaleFactor(0.5).monospacedDigit()
                     Text(c.totalDays == 1 ? String(localized: "day") : String(localized: "days")).font(.caption2)
                 }
+                // Keeps four-digit counts inside the circle (the frame is the circle's bounding square).
+                .padding(.horizontal, 6)
             }
             .widgetURL(URL(string: "harmonia://home"))
             .accessibilityLabel(WidgetText.daysTogether(c.totalDays))

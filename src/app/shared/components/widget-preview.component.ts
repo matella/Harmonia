@@ -118,7 +118,8 @@ import { EmblemComponent } from './emblem.component';
       white-space: nowrap;
       max-width: 100%;
     }
-    @media (max-width: 380px) {
+    /* Side by side, the medium preview is too narrow for a four-digit count on 390–430 px phones. */
+    @media (max-width: 440px) {
       .previews {
         flex-direction: column;
       }

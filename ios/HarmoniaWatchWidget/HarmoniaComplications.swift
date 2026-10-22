@@ -36,9 +36,11 @@ struct ComplicationView: View {
             ZStack {
                 AccessoryWidgetBackground()
                 VStack(spacing: 0) {
-                    Text(c.totalDays.formatted()).font(.system(.title3, design: .serif)).minimumScaleFactor(0.4).monospacedDigit()
+                    Text(c.totalDays.formatted()).font(.system(.title3, design: .serif)).lineLimit(1).minimumScaleFactor(0.4).monospacedDigit()
                     Text(c.totalDays == 1 ? String(localized: "day") : String(localized: "days")).font(.system(size: 9))
                 }
+                // Keeps four-digit counts inside the circle (the frame is the circle's bounding square).
+                .padding(.horizontal, 4)
             }
             .accessibilityLabel(Text("\(c.totalDays) days together"))
         case (.accessoryCorner, .counter(let c)):
