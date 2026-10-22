@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import { compareHlc, formatHlc, HLC_PATTERN, newHlcNode, observeHlc, parseHlc, tickHlc, ZERO_HLC } from './hlc';
+import {
+  compareHlc,
+  formatHlc,
+  HLC_PATTERN,
+  isTooFarAhead,
+  MAX_FUTURE_DRIFT_MS,
+  newHlcNode,
+  observeHlc,
+  parseHlc,
+  tickHlc,
+  ZERO_HLC,
+} from './hlc';
 
 const NODE = '0000abcd';
 // The server's own check (supabase/migrations/…_sharing_init.sql).
@@ -49,7 +60,11 @@ describe('hybrid logical clock', () => {
   });
 
   it('orders by text exactly as by time', () => {
-    const versions = [tickHlc(null, 999, NODE), tickHlc(null, 1000, NODE), tickHlc(null, 10_000, NODE)];
+    const versions = [
+      tickHlc(null, 999, NODE),
+      tickHlc(null, 1000, NODE),
+      tickHlc(null, 10_000, NODE),
+    ];
     expect([...versions].reverse().sort()).toEqual(versions);
   });
 
@@ -57,5 +72,16 @@ describe('hybrid logical clock', () => {
     expect(() => parseHlc('2026-10-21')).toThrow(RangeError);
     expect(() => formatHlc({ ms: 1, counter: 1, node: 'XYZ' })).toThrow(RangeError);
     expect(newHlcNode()).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  it('ignores a remote version too far ahead of this device clock', () => {
+    const now = 1_800_000_000_000;
+    const local = formatHlc({ ms: now, counter: 0, node: NODE });
+    const year2099 = formatHlc({ ms: 4_070_908_800_000, counter: 0, node: 'ffffffff' });
+    expect(isTooFarAhead(year2099, now)).toBe(true);
+    expect(parseHlc(observeHlc(local, year2099, now, NODE)).ms).toBe(now);
+    const withinDrift = formatHlc({ ms: now + MAX_FUTURE_DRIFT_MS, counter: 0, node: 'ffffffff' });
+    expect(isTooFarAhead(withinDrift, now)).toBe(false);
+    expect(parseHlc(observeHlc(local, withinDrift, now, NODE)).ms).toBe(now + MAX_FUTURE_DRIFT_MS);
   });
 });

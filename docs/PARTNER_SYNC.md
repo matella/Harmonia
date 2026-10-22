@@ -389,6 +389,14 @@ Slice 1 of 4 (see the slices below). No network yet: the engine runs against an 
   - a second writer in the same space waits for the first to commit, and gets the higher number.
 - `core/sync/encoding.test.ts`: base64, bytea and SHA-256.
 
+### Clock drift limit (2026-10-22, after a security review)
+
+A version from another device more than **one day** ahead of the receiving clock is never adopted. Otherwise one broken clock (a phone set to 2099) or a hostile member could drag every later version into the future, so normal edits elsewhere could never win again.
+- **Server** (`20261022000100_records_future_versions.sql`): writes more than a day ahead of the server clock are **skipped silently**, like stale ones, so one bad row never fails a whole upload. The skipped change stays in the sender's outbox and is accepted once real time catches up.
+- **Device:** pulling stops just before a record more than a day ahead of this device's clock (`deferred` in the report) and resumes once the clocks agree, so nothing is skipped. This only happens when the receiving clock is behind by more than a day, because the server refuses anything further ahead of real time.
+- `observeHlc` ignores such versions too, and the clock only advances on records that actually change something.
+- Tests: `domain/hlc.test.ts`, `sync/sync-engine.test.ts` (a record from a clock three days ahead waits, then applies), `supabase/tests/records-versions.test.ts`.
+
 **Found for slice 3 (invite screens):**
 - `approve_invite` seals the space key to the joiner, but the inviter cannot read the joiner's device row before approval (row-level security). The invite needs to expose the claimed device's public keys to the inviter, which the safety code then covers.
 - `claim_invite` returns the invite envelope before approval, so whoever holds the link gets the space key before the inviter approves; only row-level security keeps them out. Return the envelope only after approval, or drop it and rely on the sealed key.

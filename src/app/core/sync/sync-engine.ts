@@ -1,4 +1,4 @@
-import { compareHlc, HLC_PATTERN } from '../domain/hlc';
+import { compareHlc, HLC_PATTERN, isTooFarAhead } from '../domain/hlc';
 import { SYNC_SCHEMA, type SyncedRecordType } from '../domain/sync-schema';
 import type { SqlValue } from '../persistence/sql-driver';
 import type { SyncCrypto } from './sync-crypto-port';
@@ -34,6 +34,11 @@ export interface SyncReport {
   rejected: number;
   /** Local records the server cannot store (an ID that is not a UUID); kept on this device. */
   unsendable: number;
+  /**
+   * True when pulling stopped at a record more than a day ahead of this device's clock.
+   * It and everything after it wait until the clocks agree; nothing is skipped.
+   */
+  deferred: boolean;
   /** Record types that changed locally, so the app can reload and reconcile side effects. */
   changedTypes: SyncedRecordType[];
 }
@@ -102,6 +107,7 @@ export class SyncEngine {
       superseded: 0,
       rejected: 0,
       unsendable: 0,
+      deferred: false,
       changedTypes: [],
     };
     const changed = new Set<SyncedRecordType>();
@@ -126,6 +132,12 @@ export class SyncEngine {
     for (;;) {
       const page = await this.transport.pull(spaceId, after, this.pageSize);
       for (const wire of page) {
+        if (HLC_PATTERN.test(wire.version) && isTooFarAhead(wire.version, this.store.nowMs())) {
+          // Stop before it so nothing is skipped; it is applied once the clocks agree.
+          report.deferred = true;
+          await this.store.setCursor(cursor);
+          return;
+        }
         // Re-read records (the overlap) were already counted when first seen.
         const reject = () => {
           if (wire.seq > seen) report.rejected++;

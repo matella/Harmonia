@@ -93,6 +93,11 @@ export class SyncStore {
     });
   }
 
+  /** This device's clock, for checks on received versions. */
+  nowMs(): number {
+    return this.clock.now().epochMilliseconds;
+  }
+
   async state(): Promise<SyncState | null> {
     const rows = await this.db.query<{
       space_id: string;
@@ -177,7 +182,8 @@ export class SyncStore {
     if (!PHASE2_TYPES.includes(record.type)) return false;
     return this.db.transaction(async (tx) => {
       const changed = await this.applyIn(tx, record, defaults);
-      await this.journal.observe(tx, record.version);
+      // Unchanged means the local copy is at least as new: the clock is already past it.
+      if (changed) await this.journal.observe(tx, record.version);
       return changed;
     });
   }

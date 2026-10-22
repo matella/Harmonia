@@ -259,7 +259,7 @@ describe('sync engine (two devices, in-memory server)', () => {
         recordType: 'milestone' as const,
         recordId: newId(),
         epoch: 1,
-        version: '1793000000000-000000-0000beef',
+        version: '1792670000000-000000-0000beef',
         deleted: false,
         ...overrides,
       };
@@ -374,10 +374,10 @@ describe('sync engine (two devices, in-memory server)', () => {
       recordType: 'person' as const,
       recordId: self.id,
       epoch: 1,
-      version: '1893456000000-000000-0000beef',
+      version: '1792670000000-000000-0000beef',
       deleted: true,
     };
-    const data = { display_name: 'Sam', deleted_at: '2030-01-01T00:00:00Z' };
+    const data = { display_name: 'Sam', deleted_at: '2026-10-22T11:00:00Z' };
     const sealed = crypto.encryptRecord(
       spaceKey,
       { spaceId: SPACE, ...base },
@@ -416,5 +416,23 @@ describe('sync engine (two devices, in-memory server)', () => {
     expect(report.pushed).toBe(3); // the profile, Alex and the trip (Sam is a placeholder)
     expect(server.all().map((r) => r.recordId)).toContain(trip.id);
     expect(await a.store.outbox()).toEqual([]);
+  });
+
+  it('waits for a record from a clock far ahead instead of adopting or skipping it', async () => {
+    const { a, b, trip } = await pair();
+    a.clock.set('2026-10-25T10:00:00Z'); // A's clock is three days ahead
+    await a.milestones.update(trip.id, date({ title: 'From the future' }));
+    await a.engine.sync();
+
+    const hlcBefore = await b.driver.query('SELECT last FROM hlc_state');
+    const report = await b.engine.sync();
+    expect(report.deferred).toBe(true);
+    expect((await b.milestones.get(trip.id))?.title).toBe('First trip');
+    expect(await b.driver.query('SELECT last FROM hlc_state')).toEqual(hlcBefore);
+
+    b.clock.set('2026-10-24T12:00:00Z'); // now within a day of it
+    const later = await b.engine.sync();
+    expect(later.deferred).toBe(false);
+    expect((await b.milestones.get(trip.id))?.title).toBe('From the future');
   });
 });
