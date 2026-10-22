@@ -238,7 +238,8 @@ The product questions (joining with existing data, edit rights and trash, partne
 - ✅ A device key survives the app being killed.
 - ✅ On disk it is only ciphertext. It's AES-GCM under an Android Keystore key, in app-private preferences excluded from backups, and the public key appears nowhere in the file.
 - ✅ Removal works. Android writes the preferences file lazily, so it's empty only after a moment.
-- iOS is configured as `whenUnlockedThisDeviceOnly` with iCloud sync off, but **not run (no Mac)**.
+- iOS is configured as `whenUnlockedThisDeviceOnly` with iCloud sync off. ✅ Checked on the iOS 26.3 simulator (2026-10-22): an item survives a relaunch, the keychain stores it with `pdmn=aku` (when unlocked, this device only) and `sync=0`, and removal leaves nothing. The check called the plugin directly with the wrapper's settings, because `storeDeviceKey` loads libsodium first (see below).
+- **libsodium in WKWebView: not verified.** On the iOS 26.3 simulator on an Intel Mac, loading libsodium crashes the WebContent process inside JavaScriptCore's WebAssembly signal handler (`docs/IOS_SETUP.md` §4), so `selfTest()` can't run there. Plain WebAssembly works there, and the same libsodium runs in the Mac's own JavaScriptCore. It needs a real iPhone or an Apple-silicon Mac.
 - Whether the Android key is hardware-backed can't be judged on an emulator. Check on a real phone.
 - The plugin's own web fallback is `localStorage`, so our wrapper uses memory only on the web.
 - The package also lists `@capacitor/keyboard` as a dependency. Capacitor registers only plugins the app itself declares, so no extra native code is built in.
@@ -278,7 +279,7 @@ The product questions (joining with existing data, edit rights and trash, partne
 **Before phase 2:**
 - a Supabase EU project, or a working Docker for `supabase start`;
 - a decision on the domain;
-- the iOS check of the Keychain attributes and of libsodium in WKWebView.
+- the iOS check of libsodium in WKWebView on a real iPhone or an Apple-silicon Mac (the Keychain attributes are verified).
 
 ## 16. Phase 1 results: local data model (2026-10-21)
 
