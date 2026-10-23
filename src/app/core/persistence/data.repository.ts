@@ -22,6 +22,7 @@ export class DataRepository {
       await tx.run('DELETE FROM sync_state');
       await tx.run('DELETE FROM space_devices');
       await tx.run('DELETE FROM space_recovery');
+      await tx.run('DELETE FROM purged_records');
       await tx.run('DELETE FROM hlc_state');
     });
   }

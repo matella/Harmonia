@@ -786,3 +786,30 @@ Built as revised in §8 (key pair, separate `recovery` record, hashed lookups, s
 
 **Still open from phase 1:**
 - "Delete forever" and the 30-day purge remove the row locally but do not reach the other device yet. They need a content-free tombstone that syncs.
+
+## 18. Phase 5: memories and photos (2026-10-23)
+
+**Scope.** Memories (title, text, date, linked date) and the photos in them. The photo on a date and the profile photo stay on each device for now; they can follow the same path later.
+
+**Photos** (decided by the product owner, 2026-10-23, see §9): only the 2048 px version is uploaded, encrypted with its own random key in 64 KiB chunks (§3). The photo's record (`memory_media`) carries the blob ID, the file key, the stream header and the size, inside its encryption. A photo record reaches the server **only after its file is uploaded**; until then, and when the space is at its 2 GB limit, it waits in the outbox. Each device makes its own thumbnail after downloading.
+
+**Slices:**
+1. **Memory records** (done, below): memories sync; photo records have their final format but wait on the phone.
+2. **Encrypted photos:** first a live test of what local Supabase Storage enforces (object size, paths per chunk, a quota a member can't get around by calling Storage directly), then upload with resume, download with thumbnails through a `core/platform` interface, the 2 GB limit, and the screen's message at the limit.
+3. **Deleting:** "delete forever" and the 30-day purge reach the other devices as a content-free record, and the server deletes the photo's file, freeing its space.
+
+### Slice 1: memory records
+
+- **Local schema 6:** `memories.milestone_id` and `memory_media.memory_id` are no longer foreign keys. A pull is ordered by each record's latest change, so after an edit a photo record can arrive before its memory, and a memory before its date. With foreign keys on, that insert failed and the record was skipped for good. The repositories now delete a memory's photo rows explicitly.
+- `memory_media` gains `blob_id`, `blob_key`, `blob_header`, `blob_size` (shared) and `blob_state` (local: `local`, `uploaded` or `remote`); `file_path` may be empty for a photo not downloaded yet, and such photos aren't shown yet.
+- **Deleted for good stays deleted:** a local `purged_records` table keeps the version of what "delete forever" and the purge removed, and a pull of the same or an older version is ignored. Without it, the full re-pull after an update (capability 4) would have brought such items back to the trash. A newer version (the partner restores or edits it) still comes back.
+- **Memories made before sharing could sync** go up once: moving to capability 4 queues every memory and photo record (photos still wait for slice 2). Memory edits made while sharing were already queued and go up too, once.
+- Payload rules: lengths as in the editor, a valid date, IDs as UUIDs, and the blob fields all present (valid sizes) or all empty.
+- The sharing screen now says memories are shared and photos will follow.
+
+**Tests:** sql.js (`memory-sync.test.ts`, 6): memories both ways with photos held back; a photo and a memory pulled before their memory and date end up linked; memories from before the update uploaded once; something deleted for good here stays gone after a full re-pull but comes back when restored elsewhere (checked to fail without the guard); records over the limits refused; schema 6 keeps data and drops the two foreign keys. Live, local stack: a memory made before sharing and one made after reach the other phone; the server holds two memory records and no photo record.
+
+**On the emulator** (API 37.2, development build): the recovered phone from phase 4, on schema 5, was updated in place; it opened on schema 6 with its data, and a memory written there reached the server.
+
+**Not verified:** receiving memories on a device (covered by sql.js and live tests); photos (slice 2).
+

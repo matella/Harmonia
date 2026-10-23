@@ -18,7 +18,8 @@ interface MemoryRow extends SqlRow {
 interface MediaRow extends SqlRow {
   id: string;
   memory_id: string;
-  file_path: string;
+  /** Null for a photo from the space that isn't downloaded yet (never returned by list/get). */
+  file_path: string | null;
   thumbnail_path: string | null;
   sort_order: number;
   created_at: string;
@@ -41,7 +42,7 @@ function toMedia(row: MediaRow): MemoryMedia {
   return {
     id: row.id,
     memoryId: row.memory_id,
-    filePath: row.file_path,
+    filePath: row.file_path ?? '',
     thumbnailPath: row.thumbnail_path,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
@@ -60,7 +61,10 @@ export class MemoryRepository {
   async list(): Promise<Memory[]> {
     const [memories, media] = await Promise.all([
       this.db.query<MemoryRow>('SELECT * FROM memories WHERE deleted_at IS NULL ORDER BY memory_date DESC, created_at DESC, id'),
-      this.db.query<MediaRow>('SELECT * FROM memory_media WHERE deleted_at IS NULL ORDER BY memory_id, sort_order, created_at'),
+      // A photo from the space shows once its file is downloaded (phase 5, slice 2).
+      this.db.query<MediaRow>(
+        'SELECT * FROM memory_media WHERE deleted_at IS NULL AND file_path IS NOT NULL ORDER BY memory_id, sort_order, created_at',
+      ),
     ]);
     const byMemory = new Map<string, MemoryMedia[]>();
     for (const row of media) {
@@ -75,7 +79,7 @@ export class MemoryRepository {
     const rows = await this.db.query<MemoryRow>('SELECT * FROM memories WHERE id = ? AND deleted_at IS NULL', [id]);
     if (!rows[0]) return null;
     const media = await this.db.query<MediaRow>(
-      'SELECT * FROM memory_media WHERE memory_id = ? AND deleted_at IS NULL ORDER BY sort_order',
+      'SELECT * FROM memory_media WHERE memory_id = ? AND deleted_at IS NULL AND file_path IS NOT NULL ORDER BY sort_order',
       [id],
     );
     return this.toMemory(rows[0], media.map(toMedia));
@@ -119,7 +123,7 @@ export class MemoryRepository {
           [mediaId, id],
         );
         for (const row of rows) {
-          removed.push(row.file_path);
+          if (row.file_path) removed.push(row.file_path);
           if (row.thumbnail_path) removed.push(row.thumbnail_path);
           const mediaVersion = await this.journal.stamp(tx);
           await tx.run('UPDATE memory_media SET deleted_at = ?, version = ? WHERE id = ?', [now, mediaVersion, row.id]);
@@ -157,7 +161,7 @@ export class MemoryRepository {
    */
   async referencedFiles(): Promise<Set<string>> {
     const rows = await this.db.query<{ path: string | null }>(
-      `SELECT file_path AS path FROM memory_media WHERE deleted_at IS NULL
+      `SELECT file_path AS path FROM memory_media WHERE deleted_at IS NULL AND file_path IS NOT NULL
        UNION SELECT thumbnail_path FROM memory_media WHERE deleted_at IS NULL
        UNION SELECT photo_path FROM milestones
        UNION SELECT photo_path FROM relationship_profile`,

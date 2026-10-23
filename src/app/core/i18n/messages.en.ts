@@ -357,7 +357,7 @@ export const EN = {
   'settings.sharingOnNoName': 'Sharing is on',
   'sharing.title': 'Share with your partner',
   'sharing.intro': 'Invite your partner so that both of you see the same start date, names and dates. What you share is end-to-end encrypted: the sharing server can’t read it.',
-  'sharing.whatShared': 'Your partner sees and can edit your profile and your dates, and you see theirs. Memories and photos will be shared too in a later version. If one of you leaves, each keeps a full copy.',
+  'sharing.whatShared': 'Your partner sees and can edit your profile, your dates and your memories, and you see theirs. Photos in memories will be shared too in a later version. If one of you leaves, each keeps a full copy.',
   'sharing.invite': 'Invite your partner',
   'sharing.join': 'Join with a code',
   'sharing.yourName': 'Your name',

@@ -359,7 +359,7 @@ export const NL: EnCatalog = {
   'settings.sharingOnNoName': 'Delen staat aan',
   'sharing.title': 'Delen met je partner',
   'sharing.intro': 'Nodig je partner uit, zodat jullie allebei dezelfde startdatum, namen en datums zien. Wat je deelt is end-to-end versleuteld: de deelserver kan het niet lezen.',
-  'sharing.whatShared': 'Je partner ziet je profiel en je datums en kan ze bewerken, en jij ziet die van je partner. Herinneringen en foto’s worden in een latere versie ook gedeeld. Als een van jullie vertrekt, houden jullie allebei een volledige kopie.',
+  'sharing.whatShared': 'Je partner ziet je profiel, je datums en je herinneringen en kan ze bewerken, en jij ziet die van je partner. Foto’s bij herinneringen worden in een latere versie ook gedeeld. Als een van jullie vertrekt, houden jullie allebei een volledige kopie.',
   'sharing.invite': 'Je partner uitnodigen',
   'sharing.join': 'Meedoen met een code',
   'sharing.yourName': 'Je naam',

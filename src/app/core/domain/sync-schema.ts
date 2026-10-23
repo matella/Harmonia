@@ -5,13 +5,7 @@
  * cannot slip into sync by accident.
  */
 export type SyncedRecordType =
-  | 'profile'
-  | 'person'
-  | 'milestone'
-  | 'memory'
-  | 'memory_media'
-  | 'device'
-  | 'recovery';
+  'profile' | 'person' | 'milestone' | 'memory' | 'memory_media' | 'device' | 'recovery';
 
 export interface TableSyncSchema {
   table: string;
@@ -59,7 +53,7 @@ export const SYNC_SCHEMA: Readonly<Record<SyncedRecordType, TableSyncSchema>> = 
       'note',
       'is_pinned',
     ],
-    // photo_path is a local file; the photo itself syncs as an encrypted blob.
+    // photo_path is a local file; a date's photo stays on each device for now (PARTNER_SYNC §18).
     local: ['photo_path', 'created_at', 'updated_at'],
     meta: ['version', 'author_person_id', 'deleted_at'],
   },
@@ -69,10 +63,13 @@ export const SYNC_SCHEMA: Readonly<Record<SyncedRecordType, TableSyncSchema>> = 
     local: ['created_at', 'updated_at'],
     meta: ['version', 'author_person_id', 'deleted_at'],
   },
+  // A photo of a memory. The photo itself is an encrypted blob on the server (§3); its
+  // ID, file key, stream header and plaintext size travel inside this encrypted record.
+  // `blob_state`: 'local' (only on this device), 'uploaded', 'remote' (still to download).
   memory_media: {
     table: 'memory_media',
-    shared: ['id', 'memory_id', 'sort_order'],
-    local: ['file_path', 'thumbnail_path', 'created_at'],
+    shared: ['id', 'memory_id', 'sort_order', 'blob_id', 'blob_key', 'blob_header', 'blob_size'],
+    local: ['file_path', 'thumbnail_path', 'blob_state', 'created_at'],
     meta: ['version', 'deleted_at'],
   },
   // Each device's own record of its public keys (PARTNER_SYNC §7.2). Removal is the
@@ -102,4 +99,5 @@ export const LOCAL_ONLY_TABLES = [
   'sync_state',
   'outbox',
   'schema_migrations',
+  'purged_records',
 ] as const;

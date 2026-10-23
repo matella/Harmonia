@@ -2,7 +2,7 @@ import type { Clock } from '../domain/clock';
 import type { TrashItem } from '../domain/models';
 import { TRASH_RETENTION_DAYS } from '../domain/trash';
 import { ChangeJournal } from './change-journal';
-import type { SqlDriver, SqlExecutor, SqlRow } from './sql-driver';
+import type { SqlDriver, SqlExecutor, SqlRow, SqlValue } from './sql-driver';
 
 interface TrashRow extends SqlRow {
   kind: 'milestone' | 'memory';
@@ -88,6 +88,12 @@ export class TrashRepository {
       );
       for (const item of expired) files.push(...(await this.removeForever(tx, item.kind, item.id)));
       // Photos removed while editing were deleted from disk already; drop their old tombstones.
+      await this.rememberPurged(
+        tx,
+        'memory_media',
+        'SELECT id, version FROM memory_media WHERE deleted_at IS NOT NULL AND deleted_at < ?',
+        [cutoff],
+      );
       await tx.run('DELETE FROM memory_media WHERE deleted_at IS NOT NULL AND deleted_at < ?', [cutoff]);
       return files;
     });
@@ -103,6 +109,25 @@ export class TrashRepository {
     await this.journal.changed(tx, type, id, version);
   }
 
+  /**
+   * Notes rows about to be deleted for good, with their version, so a pull of the same or
+   * an older version from the space doesn't bring them back (docs/PARTNER_SYNC.md §18).
+   */
+  private async rememberPurged(
+    tx: SqlExecutor,
+    type: 'milestone' | 'memory' | 'memory_media',
+    select: string,
+    params: SqlValue[],
+  ): Promise<void> {
+    for (const row of await tx.query<{ id: string; version: string }>(select, params)) {
+      await tx.run(
+        `INSERT INTO purged_records (record_type, record_id, version) VALUES (?, ?, ?)
+         ON CONFLICT (record_type, record_id) DO UPDATE SET version = excluded.version`,
+        [type, row.id, row.version],
+      );
+    }
+  }
+
   private async removeForever(tx: SqlExecutor, kind: TrashItem['kind'], id: string): Promise<string[]> {
     const files: string[] = [];
     const memoryIds =
@@ -110,16 +135,25 @@ export class TrashRepository {
         ? (await tx.query<{ id: string }>('SELECT id FROM memories WHERE trashed_with = ? AND deleted_at IS NOT NULL', [id])).map((r) => r.id)
         : [id];
     for (const memoryId of memoryIds) {
-      const media = await tx.query<{ file_path: string; thumbnail_path: string | null; deleted_at: string | null }>(
+      const media = await tx.query<{ file_path: string | null; thumbnail_path: string | null; deleted_at: string | null }>(
         'SELECT file_path, thumbnail_path, deleted_at FROM memory_media WHERE memory_id = ?',
         [memoryId],
       );
       for (const m of media) {
         if (m.deleted_at) continue; // tombstone: file already removed
-        files.push(m.file_path);
+        if (m.file_path) files.push(m.file_path); // a photo from the space may not be downloaded yet
         if (m.thumbnail_path) files.push(m.thumbnail_path);
       }
-      await tx.run('DELETE FROM memories WHERE id = ? AND deleted_at IS NOT NULL', [memoryId]); // media cascade
+      const gone = await tx.query<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM memories WHERE id = ? AND deleted_at IS NOT NULL',
+        [memoryId],
+      );
+      if ((gone[0]?.n ?? 0) === 0) continue;
+      await this.rememberPurged(tx, 'memory', 'SELECT id, version FROM memories WHERE id = ?', [memoryId]);
+      await this.rememberPurged(tx, 'memory_media', 'SELECT id, version FROM memory_media WHERE memory_id = ?', [memoryId]);
+      // Not a foreign key any more (records arrive in any order): the photos go explicitly.
+      await tx.run('DELETE FROM memory_media WHERE memory_id = ?', [memoryId]);
+      await tx.run('DELETE FROM memories WHERE id = ?', [memoryId]);
     }
     if (kind === 'milestone') {
       const own = await tx.query<{ photo_path: string | null }>(
@@ -129,6 +163,7 @@ export class TrashRepository {
       if (own[0]?.photo_path) files.push(own[0].photo_path);
       // Kept memories still pointing at this date become unlinked for good.
       await tx.run('UPDATE memories SET milestone_id = NULL WHERE milestone_id = ?', [id]);
+      await this.rememberPurged(tx, 'milestone', 'SELECT id, version FROM milestones WHERE id = ? AND deleted_at IS NOT NULL', [id]);
       await tx.run('DELETE FROM milestones WHERE id = ? AND deleted_at IS NOT NULL', [id]); // rules cascade
     }
     return files;

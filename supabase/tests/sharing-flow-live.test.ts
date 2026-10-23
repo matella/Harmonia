@@ -7,6 +7,7 @@ import { MutableClock } from '../../src/app/core/domain/clock';
 import type { ValidMilestone, ValidProfile } from '../../src/app/core/domain/validation';
 import { ChangeJournal } from '../../src/app/core/persistence/change-journal';
 import { newId } from '../../src/app/core/persistence/ids';
+import { MemoryRepository } from '../../src/app/core/persistence/memory.repository';
 import { MilestoneRepository } from '../../src/app/core/persistence/milestone.repository';
 import { migrate } from '../../src/app/core/persistence/migrations';
 import { RelationshipRepository } from '../../src/app/core/persistence/relationship.repository';
@@ -78,6 +79,7 @@ async function phone(zone = 'Europe/Brussels', secrets = new MemorySecureKeyStor
   const store = new SyncStore(driver, clock, journal);
   const profiles = new RelationshipRepository(driver, clock, newId, journal);
   const milestones = new MilestoneRepository(driver, clock, newId, journal);
+  const memories = new MemoryRepository(driver, clock, newId, journal);
   const session = new DeviceSession(secrets, crypto, 'android', (storage: AuthStorage) =>
     createClient(stack.url, stack.key, {
       auth: {
@@ -100,7 +102,7 @@ async function phone(zone = 'Europe/Brussels', secrets = new MemorySecureKeyStor
   dissolve.push(async () => {
     if (await store.state()) await (await session.connect()).client.rpc('dissolve_space');
   });
-  return { driver, clock, store, profiles, milestones, secrets, session, sharing };
+  return { driver, clock, store, profiles, milestones, memories, secrets, session, sharing };
 }
 
 /** A secure store whose write of the start-date question can fail once. */
@@ -794,6 +796,38 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
     });
     await later.sharing.recover(second.key);
     expect(await later.sharing.status()).toBe('member');
+  });
+
+  it('shares memories, while their photos stay on the phone until uploaded (phase 5, slice 1)', async () => {
+    const alex = await phone();
+    const sam = await phone();
+    for (const p of [alex, sam]) await p.profiles.save(profile({}));
+    const before = await alex.memories.create(
+      { title: 'Ghent', body: 'Before sharing', memoryDate: '2025-03-02', milestoneId: null },
+      [{ filePath: 'media/1.jpg', thumbnailPath: null }],
+    );
+    await alex.sharing.startSharing('Alex');
+    const code = await alex.sharing.createInvite();
+    await sam.sharing.claim(code, 'Sam');
+    await alex.sharing.approveInvite();
+    let progress = await sam.sharing.checkJoin();
+    if (progress.state === 'chooseStart') progress = await sam.sharing.chooseStart('space');
+    expect(progress.state).toBe('joined');
+    const after = await sam.memories.create(
+      { title: null, body: 'From Sam', memoryDate: '2026-10-23', milestoneId: null },
+      [],
+    );
+    await sam.sharing.sync();
+    await alex.sharing.sync();
+
+    expect((await sam.memories.get(before.id))?.body).toBe('Before sharing');
+    expect((await sam.memories.get(before.id))?.media).toEqual([]);
+    expect((await alex.memories.get(after.id))?.body).toBe('From Sam');
+    const spaceId = (await alex.store.state())!.spaceId;
+    expect(
+      psql(`select record_type, count(*) from records where space_id = '${spaceId}'
+        and record_type like 'memory%' group by 1 order by 1`),
+    ).toBe('memory|2');
   });
 
   it('cleans up', async () => {

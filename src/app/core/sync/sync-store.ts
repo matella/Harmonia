@@ -12,14 +12,25 @@ import type { SqlDriver, SqlExecutor, SqlValue } from '../persistence/sql-driver
  * whose tombstone flag is set; trashing and restoring are ordinary versioned writes.
  */
 
-/** Record types synced so far; memories and photos follow in phase 5. */
+/** Record types synced so far (photo blobs follow in phase 5, slice 2). */
 export const PHASE2_TYPES: readonly SyncedRecordType[] = [
   'profile',
   'person',
   'milestone',
   'device',
   'recovery',
+  'memory',
+  'memory_media',
 ];
+
+/**
+ * Types a device starts syncing at a capability (see `SYNC_CAPABILITY`) whose local rows
+ * were never queued: its own memories made before then go up once. (Device and recovery
+ * records are written by the sharing flow itself, so they are not listed.)
+ */
+const QUEUED_AT_CAPABILITY: Readonly<Record<number, readonly SyncedRecordType[]>> = {
+  4: ['memory', 'memory_media'],
+};
 
 /** A device of the space and its public keys (base64), from the end-to-end device list. */
 export interface SpaceDevice {
@@ -113,11 +124,7 @@ export class SyncStore {
       for (const type of PHASE2_TYPES) {
         // A joiner adopts the space's profile first (§6.2), so its own is not queued.
         if (type === 'profile' && !queueProfile) continue;
-        const table = SYNC_SCHEMA[type].table;
-        const rows = await tx.query<{ id: string | number; version: string }>(
-          `SELECT id, version FROM ${table}`,
-        );
-        for (const row of rows) await this.journal.changed(tx, type, String(row.id), row.version);
+        await this.queueAll(tx, type);
       }
     });
   }
@@ -171,11 +178,29 @@ export class SyncStore {
     ]);
   }
 
-  /** After an update that accepts more: pull everything again once (unchanged records are no-ops). */
+  /**
+   * After an update that accepts more: pull everything again once (unchanged records are
+   * no-ops), and queue local rows of types this device only now starts to sync.
+   */
   async restartPull(capability: number): Promise<void> {
-    await this.db.run('UPDATE sync_state SET cursor = 0, capability = ? WHERE id = 1', [
-      capability,
-    ]);
+    await this.db.transaction(async (tx) => {
+      const before =
+        (
+          await tx.query<{ capability: number }>('SELECT capability FROM sync_state WHERE id = 1')
+        )[0]?.capability ?? capability;
+      await tx.run('UPDATE sync_state SET cursor = 0, capability = ? WHERE id = 1', [capability]);
+      for (const [level, types] of Object.entries(QUEUED_AT_CAPABILITY)) {
+        if (Number(level) <= before || Number(level) > capability) continue;
+        for (const type of types) await this.queueAll(tx, type);
+      }
+    });
+  }
+
+  private async queueAll(tx: SqlExecutor, type: SyncedRecordType): Promise<void> {
+    const rows = await tx.query<{ id: string | number; version: string }>(
+      `SELECT id, version FROM ${SYNC_SCHEMA[type].table}`,
+    );
+    for (const row of rows) await this.journal.changed(tx, type, String(row.id), row.version);
   }
 
   async outbox(): Promise<OutboxEntry[]> {
@@ -185,7 +210,14 @@ export class SyncStore {
       record_id: string;
       version: string;
     }>(
-      `SELECT record_type, record_id, version FROM outbox WHERE record_type IN (${placeholders}) ORDER BY seq`,
+      // A photo goes up only once its encrypted file is on the server (slice 2): before
+      // that, the partner would get a photo they can never open.
+      `SELECT record_type, record_id, version FROM outbox o
+       WHERE record_type IN (${placeholders})
+         AND NOT (record_type = 'memory_media' AND EXISTS (
+           SELECT 1 FROM memory_media m WHERE m.id = o.record_id AND m.blob_state <> 'uploaded'
+             AND m.deleted_at IS NULL))
+       ORDER BY seq`,
       [...PHASE2_TYPES],
     );
     return rows.map((r) => ({ type: r.record_type, id: r.record_id, version: r.version }));
@@ -475,6 +507,12 @@ export class SyncStore {
       [id],
     );
     if (current[0] && !force && compareHlc(current[0].version, record.version) >= 0) return false;
+    // Deleted for good here: the same or an older version must not come back to the trash.
+    const purged = await tx.query<{ version: string }>(
+      'SELECT version FROM purged_records WHERE record_type = ? AND record_id = ?',
+      [record.type, id],
+    );
+    if (purged[0] && compareHlc(purged[0].version, record.version) >= 0) return false;
     if (current[0] && force && current[0].version === record.version) return false;
     if (record.type === 'person' && record.payload['deleted_at'] !== null) {
       // Nobody can delete this device's owner; doing so would also break saving the profile.
@@ -517,12 +555,12 @@ export class SyncStore {
     const now = this.clock.now().toString();
     if (current[0]) {
       const sets = columns.map((c) => `${c} = ?`).join(', ');
-      await tx.run(`UPDATE ${schema.table} SET ${sets}, version = ?, updated_at = ? WHERE id = ?`, [
-        ...values,
-        record.version,
-        now,
-        id,
-      ]);
+      // Photo rows have no `updated_at`.
+      const touched = schema.local.includes('updated_at');
+      await tx.run(
+        `UPDATE ${schema.table} SET ${sets}, version = ?${touched ? ', updated_at = ?' : ''} WHERE id = ?`,
+        touched ? [...values, record.version, now, id] : [...values, record.version, id],
+      );
     } else {
       const extra = this.insertDefaults(record.type, defaults, now);
       const allColumns = ['id', ...columns, 'version', ...Object.keys(extra)];
@@ -555,6 +593,9 @@ export class SyncStore {
         };
       case 'person':
         return { is_self: 0, is_placeholder: 0, created_at: now, updated_at: now };
+      case 'memory_media':
+        // The file comes later, from the encrypted blob.
+        return { blob_state: 'remote', created_at: now };
       default:
         return { created_at: now, updated_at: now };
     }

@@ -37,7 +37,41 @@ function optionalInstant(value: SqlValue): boolean {
 const publicKey = (value: SqlValue) =>
   typeof value === 'string' && /^[A-Za-z0-9+/]{43}=$/.test(value);
 
+const optionalUuid = (value: SqlValue) =>
+  value === null || (typeof value === 'string' && UUID.test(value));
+/** Standard base64 of exactly `bytes` bytes. */
+const base64Of = (value: SqlValue, bytes: number) =>
+  typeof value === 'string' &&
+  value.length === Math.ceil(bytes / 3) * 4 &&
+  /^[A-Za-z0-9+/]*={0,2}$/.test(value);
+/** A photo is at most a 2048 px JPEG; anything near this is not one of ours. */
+const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
+
 const RULES: Readonly<Partial<Record<SyncedRecordType, (p: Payload) => boolean>>> = {
+  memory: (p) =>
+    optionalUuid(p['milestone_id']) &&
+    optionalText(p['title'], LIMITS.memoryTitle) &&
+    optionalText(p['body'], LIMITS.memoryBody) &&
+    isoDate(p['memory_date']) &&
+    optionalUuid(p['trashed_with']),
+  // The blob fields come all together or not at all (a photo not uploaded yet never syncs,
+  // but a record without them is still well-formed).
+  memory_media: (p) =>
+    typeof p['memory_id'] === 'string' &&
+    UUID.test(p['memory_id']) &&
+    Number.isInteger(p['sort_order']) &&
+    (p['sort_order'] as number) >= 0 &&
+    ((p['blob_id'] === null &&
+      p['blob_key'] === null &&
+      p['blob_header'] === null &&
+      p['blob_size'] === null) ||
+      (typeof p['blob_id'] === 'string' &&
+        UUID.test(p['blob_id']) &&
+        base64Of(p['blob_key'], 32) &&
+        base64Of(p['blob_header'], 24) &&
+        Number.isInteger(p['blob_size']) &&
+        (p['blob_size'] as number) > 0 &&
+        (p['blob_size'] as number) <= MAX_PHOTO_BYTES)),
   recovery: (p) => publicKey(p['public_key']),
   device: (p) =>
     (p['person_id'] === null ||

@@ -225,6 +225,65 @@ export const MIGRATIONS: readonly Migration[] = [
       `ALTER TABLE outbox_v5 RENAME TO outbox`,
     ],
   },
+  {
+    version: 6,
+    name: 'shared memories and photos (partner sharing phase 5)',
+    statements: [
+      // Records from the space arrive in any order (a photo before its memory, a memory
+      // before its date), so these links are no longer foreign keys; a refused insert would
+      // be skipped for good. The repositories delete children explicitly instead.
+      // memory_media goes first: dropping memories while it still referenced them would
+      // cascade-delete every photo row.
+      `CREATE TABLE memory_media_v6 (
+        id TEXT PRIMARY KEY,
+        memory_id TEXT NOT NULL,
+        file_path TEXT,
+        thumbnail_path TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        version TEXT NOT NULL DEFAULT '0000000000000-000000-00000000',
+        deleted_at TEXT,
+        blob_id TEXT,
+        blob_key TEXT,
+        blob_header TEXT,
+        blob_size INTEGER,
+        blob_state TEXT NOT NULL DEFAULT 'local' CHECK (blob_state IN ('local', 'uploaded', 'remote'))
+      )`,
+      `INSERT INTO memory_media_v6 (id, memory_id, file_path, thumbnail_path, sort_order, created_at, version, deleted_at)
+       SELECT id, memory_id, file_path, thumbnail_path, sort_order, created_at, version, deleted_at FROM memory_media`,
+      `DROP TABLE memory_media`,
+      `ALTER TABLE memory_media_v6 RENAME TO memory_media`,
+      `CREATE INDEX idx_memory_media_memory ON memory_media (memory_id)`,
+      `CREATE TABLE memories_v6 (
+        id TEXT PRIMARY KEY,
+        milestone_id TEXT,
+        title TEXT,
+        body TEXT,
+        memory_date TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        version TEXT NOT NULL DEFAULT '0000000000000-000000-00000000',
+        author_person_id TEXT,
+        deleted_at TEXT,
+        trashed_with TEXT
+      )`,
+      `INSERT INTO memories_v6 (id, milestone_id, title, body, memory_date, created_at, updated_at, version, author_person_id, deleted_at, trashed_with)
+       SELECT id, milestone_id, title, body, memory_date, created_at, updated_at, version, author_person_id, deleted_at, trashed_with FROM memories`,
+      `DROP TABLE memories`,
+      `ALTER TABLE memories_v6 RENAME TO memories`,
+      `CREATE INDEX idx_memories_date ON memories (memory_date)`,
+      `CREATE INDEX idx_memories_milestone ON memories (milestone_id)`,
+      `CREATE INDEX idx_memories_deleted ON memories (deleted_at)`,
+      // Records deleted for good on this device, with the version they had: a pull of the
+      // same or an older version (a full re-pull, say) must not bring them back to the trash.
+      `CREATE TABLE purged_records (
+        record_type TEXT NOT NULL,
+        record_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        PRIMARY KEY (record_type, record_id)
+      )`,
+    ],
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

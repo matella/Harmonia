@@ -360,7 +360,7 @@ export const FR: EnCatalog = {
   'settings.sharingOnNoName': 'Le partage est activé',
   'sharing.title': 'Partager avec votre partenaire',
   'sharing.intro': 'Invitez votre partenaire pour voir tous les deux la même date de début, les mêmes prénoms et les mêmes dates. Ce que vous partagez est chiffré de bout en bout\u00a0: le serveur de partage ne peut pas le lire.',
-  'sharing.whatShared': 'Votre partenaire voit et peut modifier votre profil et vos dates, et vous voyez les siens. Les souvenirs et les photos seront aussi partagés dans une prochaine version. Si l’un de vous part, chacun garde une copie complète.',
+  'sharing.whatShared': 'Votre partenaire voit et peut modifier votre profil, vos dates et vos souvenirs, et vous voyez les siens. Les photos des souvenirs seront aussi partagées dans une prochaine version. Si l’un de vous part, chacun garde une copie complète.',
   'sharing.invite': 'Inviter votre partenaire',
   'sharing.join': 'Rejoindre avec un code',
   'sharing.yourName': 'Votre prénom',
