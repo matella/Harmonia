@@ -1058,6 +1058,7 @@ export class SharingPage implements OnInit, OnDestroy {
         this.view.set({ kind: 'off' });
         return;
       }
+      this.loadMemberDetails();
       this.syncStatus.set(
         this.t.t(
           report.awaitingKey
@@ -1097,6 +1098,11 @@ export class SharingPage implements OnInit, OnDestroy {
 
   private showMember(): void {
     this.view.set({ kind: 'member' });
+    this.loadMemberDetails();
+  }
+
+  /** My devices, the recovery key and whether a partner has joined: after a sync too. */
+  private loadMemberDetails(): void {
     void this.sharing
       .myDevices()
       .then((devices) => this.myDevices.set(devices))

@@ -410,6 +410,17 @@ describe('SharingPage recovery key', () => {
     fixture.destroy();
   });
 
+  it('stops offering an invite once a sync brings the partner in', async () => {
+    fake.view = 'member';
+    fake.partner = false;
+    const { fixture, el } = await render();
+    expect(el.textContent).toContain('Invite your partner');
+    fake.partner = true;
+    await click(fixture, 'Sync now');
+    expect(el.textContent).not.toContain('Invite your partner');
+    fixture.destroy();
+  });
+
   it('suggests replacing the key after removing a device', async () => {
     fake.view = 'member';
     fake.devices = [

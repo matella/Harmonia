@@ -759,7 +759,17 @@ Built as revised in §8 (key pair, separate `recovery` record, hashed lookups, s
 - A `recovery` record is now kept by the server only from a device of the person it belongs to, and a mismatch with the key the server seals to shows the "create your recovery key" banner again (PGlite and sql.js tests).
 - A hostile server holding back newer epochs from a recovering device is recorded as a limit in §11 (same family as withholding a removal record).
 
-**Not verified:** on the emulator or any device; the share sheet for *Save or send*.
+**Verified on the Android emulator** (API 37.2, development build against the local stack, the browser preview on a separate origin as Sam's phone):
+- Alex turns sharing on; the key shows in 8 numbered groups; *Save or send* opens the Android share sheet with the key as one sentence (no file written by the app); two groups typed back in lower case confirm it, then the invite shows.
+- Sam joins (same safety code on both), goes straight to their own key and confirms it. The server holds both persons' lookups, at epoch 3.
+- **The app's data is wiped** (`pm clear`). After a fresh onboarding with a different start date, *Recover with your recovery key* with only the key (typed in lower case, spaces for hyphens) brings back "Shared with Sam", the shared start date (over the one just typed), every date, the key shown as set, and the lost phone listed under my devices.
+- **Syncing both ways:** a date added on the recovered phone reaches Sam, and Sam's new date reaches the phone.
+- Removing the lost phone from the recovered one moves the space to epoch 4 with recovery envelopes for both persons, shows the suggestion to replace the key, and Sam adopts the new key and keeps syncing.
+- Found and fixed: the shared screen kept offering *Invite your partner* after a sync had brought the partner in; it now rechecks after each sync (page spec).
+
+**Phase 4's done-when** ("restored on a wiped emulator with the key only") is met.
+
+**Not verified:** iOS, a real Android phone, and two emulators (the second phone was the browser preview).
 
 ### Delete all data while sharing (2026-10-23)
 
