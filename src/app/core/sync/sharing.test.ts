@@ -43,11 +43,11 @@ describe('sharing without a server', () => {
       createdAt: clock.now().epochMilliseconds,
     };
     await secrets.set('sharing.invite', JSON.stringify(invite));
-    expect(await sharing.currentInviteCode()).toMatch(/^H1\./);
+    expect((await sharing.currentInvite())?.code).toMatch(/^H1\./);
 
     clock.set('2026-10-24T10:00:00Z');
     expect(await sharing.checkInvite()).toEqual({ state: 'gone' });
-    expect(await sharing.currentInviteCode()).toBeNull();
+    expect(await sharing.currentInvite()).toBeNull();
     expect(await secrets.get('sharing.invite')).toBeNull();
   });
 

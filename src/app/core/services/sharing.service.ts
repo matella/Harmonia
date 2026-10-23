@@ -4,7 +4,13 @@ import { Capacitor } from '@capacitor/core';
 import { createSecureKeyStore } from '../platform/secure-key-store';
 import { SYNC_CONFIG, type SyncServerConfig } from '../platform/sync-config';
 import { DEV_SYNC_CONFIG } from '../platform/sync-dev-config';
-import type { InviteProgress, JoinProgress, Sharing, SharingStatus } from '../sync/sharing';
+import type {
+  CurrentInvite,
+  InviteProgress,
+  JoinProgress,
+  Sharing,
+  SharingStatus,
+} from '../sync/sharing';
 import type { SyncReport } from '../sync/sync-engine';
 import { SerialQueue } from '../persistence/sql-driver';
 import { AppStore } from '../state/app-store';
@@ -106,12 +112,13 @@ export class SharingService {
     });
   }
 
-  async createInvite(): Promise<string> {
-    return (await this.sharing()).createInvite();
+  /** `forMe`: an invite for one of my own devices (§7.6). */
+  async createInvite(forMe = false): Promise<string> {
+    return (await this.sharing()).createInvite({ forMe });
   }
 
-  async currentInviteCode(): Promise<string | null> {
-    return (await this.sharing()).currentInviteCode();
+  async currentInvite(): Promise<CurrentInvite | null> {
+    return (await this.sharing()).currentInvite();
   }
 
   async checkInvite(): Promise<InviteProgress> {

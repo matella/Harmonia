@@ -135,7 +135,7 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
     await alex.sharing.startSharing('Alex');
     expect(await alex.sharing.status()).toBe('member');
     const code = await alex.sharing.createInvite();
-    expect(await alex.sharing.currentInviteCode()).toBe(code);
+    expect(await alex.sharing.currentInvite()).toEqual({ code, forMe: false });
     expect(await alex.sharing.checkInvite()).toEqual({ state: 'waiting' });
 
     await expect(sam.sharing.claim('no code here', 'Sam')).rejects.toMatchObject({
@@ -333,6 +333,36 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
     await pair(sam, kim, 'Kim');
     expect((await kim.profiles.persons()).map((p) => p.displayName).sort()).toEqual(['Kim', 'Sam']);
     expect((await sam.profiles.get())?.displayName).toBe('Kim');
+  });
+
+  it('adds one of my devices: same person, no start-date question, both listed', async () => {
+    const phoneA = await phone();
+    const tablet = await phone();
+    await phoneA.profiles.save(profile({ displayName: 'Sam' }));
+    await tablet.profiles.save(profile({ startDate: '2025-01-01' })); // differs: must not ask
+    await tablet.milestones.create(date('From the tablet'));
+    await phoneA.sharing.startSharing('Alex');
+
+    const code = await phoneA.sharing.createInvite({ forMe: true });
+    expect(await phoneA.sharing.currentInvite()).toEqual({ code, forMe: true });
+    const tabletCode = await tablet.sharing.claim(code, 'Alex');
+    expect(await phoneA.sharing.checkInvite()).toEqual({
+      state: 'claimed',
+      safetyCode: tabletCode,
+    });
+    await phoneA.sharing.approveInvite();
+    expect(await tablet.sharing.checkJoin()).toEqual({ state: 'joined', ownDevice: true });
+    await phoneA.sharing.sync();
+
+    const self = async (p: Awaited<ReturnType<typeof phone>>) =>
+      (await p.profiles.persons()).find((x) => x.isSelf)!;
+    expect((await self(tablet)).id).toBe((await self(phoneA)).id);
+    expect((await self(tablet)).displayName).toBe('Alex');
+    expect((await tablet.profiles.get())?.startDate).toBe('2024-06-14');
+    expect((await phoneA.milestones.list()).map((m) => m.title)).toContain('From the tablet');
+    const devices = await phoneA.store.devices();
+    expect(devices).toHaveLength(2);
+    expect(new Set(devices.map((d) => d.personId))).toEqual(new Set([(await self(phoneA)).id]));
   });
 
   it('cleans up', async () => {

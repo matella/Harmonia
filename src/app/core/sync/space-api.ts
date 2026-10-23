@@ -128,8 +128,12 @@ export class SpaceApi {
     };
   }
 
-  async approveInvite(inviteId: string): Promise<string> {
-    return this.call<string>('approveInvite', 'approve_invite', { invite: inviteId });
+  /** `asPerson`: admit the device as one of this existing person's devices (§7.6). */
+  async approveInvite(inviteId: string, asPerson?: string): Promise<string> {
+    return this.call<string>('approveInvite', 'approve_invite', {
+      invite: inviteId,
+      as_person: asPerson ?? null,
+    });
   }
 
   async declineInvite(inviteId: string): Promise<void> {

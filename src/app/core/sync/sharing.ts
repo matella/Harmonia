@@ -57,8 +57,15 @@ export type InviteProgress =
 export type JoinProgress =
   | { state: 'waiting'; safetyCode: string }
   | { state: 'chooseStart'; space: StartOfRelationship; mine: StartOfRelationship }
-  | { state: 'joined' }
+  /** `ownDevice`: this device joined as another device of an existing person (§7.6). */
+  | { state: 'joined'; ownDevice?: boolean }
   | { state: 'gone' };
+
+/** The invite waiting for an answer, and whether it is for one of my own devices. */
+export interface CurrentInvite {
+  code: string;
+  forMe: boolean;
+}
 
 export interface SharingDeps {
   store: SyncStore;
@@ -78,6 +85,8 @@ const NAMES = {
 interface PendingInvite {
   inviteId: string;
   secret: string;
+  /** Set for "add one of my devices": approve the device as this person. */
+  forPerson?: string;
   /** When it was created here (ms); the server expires invites after 24 hours. */
   createdAt?: number;
 }
@@ -88,6 +97,10 @@ interface PendingJoin {
   inviteId: string;
   secret: string;
   inviter?: { sign: string; box: string };
+  /** The local person ID this device claimed with. */
+  claimedAs?: string;
+  /** Set once approved: the person this device now belongs to. */
+  person?: string;
   /** Set once the space key is stored here. */
   space?: { spaceId: string; epoch: number };
   /** The joiner's own start, captured before the space's profile replaces it. */
@@ -146,8 +159,11 @@ export class Sharing {
     await this.sync();
   }
 
-  /** A new single-use invite (24 hours). Replaces an earlier unanswered one. */
-  async createInvite(): Promise<string> {
+  /**
+   * A new single-use invite (24 hours). Replaces an earlier unanswered one. `forMe` makes
+   * it an invite for one of my own devices (§7.6).
+   */
+  async createInvite(options: { forMe?: boolean } = {}): Promise<string> {
     const state = await this.deps.store.state();
     if (!state) throw new SharingError('notSharing');
     const device = await this.deps.session.connect();
@@ -160,20 +176,26 @@ export class Sharing {
     if (!key) throw new MissingSpaceKeyError();
     const secret = this.deps.crypto.newInviteSecret();
     const inviteId = await api.createInvite(this.deps.crypto.wrapForInvite(key, secret));
+    const forPerson = options.forMe
+      ? (await this.deps.profiles.persons()).find((p) => p.isSelf)?.id
+      : undefined;
     await this.write<PendingInvite>(NAMES.invite, {
       inviteId,
       secret: toBase64(secret),
       createdAt: this.deps.store.nowMs(),
+      forPerson,
     });
     return formatInviteCode({ inviteId, secret });
   }
 
-  /** The code of the invite still waiting for an answer, to show it again. */
-  async currentInviteCode(): Promise<string | null> {
+  /** The invite still waiting for an answer, to show it again. */
+  async currentInvite(): Promise<CurrentInvite | null> {
     const pending = await this.pendingInvite();
-    return pending
-      ? formatInviteCode({ inviteId: pending.inviteId, secret: fromBase64(pending.secret) })
-      : null;
+    if (!pending) return null;
+    return {
+      code: formatInviteCode({ inviteId: pending.inviteId, secret: fromBase64(pending.secret) }),
+      forMe: pending.forPerson !== undefined,
+    };
   }
 
   async checkInvite(): Promise<InviteProgress> {
@@ -214,7 +236,7 @@ export class Sharing {
     const pending = await this.read<PendingInvite>(NAMES.invite);
     if (!pending) throw new SharingError('noInvite');
     const device = await this.deps.session.connect();
-    await new SpaceApi(device.client).approveInvite(pending.inviteId);
+    await new SpaceApi(device.client).approveInvite(pending.inviteId, pending.forPerson);
     await this.deps.secrets.remove(NAMES.invite);
   }
 
@@ -236,7 +258,11 @@ export class Sharing {
     if (!code) throw new SharingError('invalidCode');
     const selfId = await this.ensureSelfName(selfName);
     const device = await this.deps.session.connect({ createKeys: true });
-    const pending: PendingJoin = { inviteId: code.inviteId, secret: toBase64(code.secret) };
+    const pending: PendingJoin = {
+      inviteId: code.inviteId,
+      secret: toBase64(code.secret),
+      claimedAs: selfId,
+    };
     await this.write(NAMES.join, pending);
     try {
       const inviter = await new SpaceApi(device.client).claimInvite(code.inviteId, selfId);
@@ -280,8 +306,13 @@ export class Sharing {
       const key = this.deps.crypto.unwrapInvite(accepted.envelope, fromBase64(pending.secret));
       await this.keys.save(accepted.spaceId, accepted.epoch, key);
       pending.space = { spaceId: accepted.spaceId, epoch: accepted.epoch };
+      pending.person = accepted.personId;
       await this.write(NAMES.join, pending);
     }
+    const ownDevice =
+      pending.person !== undefined &&
+      pending.claimedAs !== undefined &&
+      pending.person !== pending.claimedAs;
 
     const { spaceId, epoch } = pending.space;
     await this.keys.load(spaceId, epoch);
@@ -296,6 +327,17 @@ export class Sharing {
         device.keys,
       ),
     );
+
+    if (ownDevice) {
+      // One of my devices (§7.6): become that person, adopt the space's profile without
+      // asking about the start date (it is the same couple), and merge this device's dates.
+      await this.deps.store.becomePerson(pending.person!);
+      if (!(await this.deps.store.state())) {
+        await this.deps.store.joinSpace(spaceId, epoch, { queueProfile: false });
+      }
+      await this.engine(device.client).sync({ pullOnly: true, adoptProfile: true });
+      return this.finishJoin(true);
+    }
 
     // Captured before adopting the space's profile, so a retry after a crash still knows it.
     if (!pending.mine) {
@@ -399,13 +441,13 @@ export class Sharing {
     for (const name of Object.values(NAMES)) await this.deps.secrets.remove(name);
   }
 
-  private async finishJoin(): Promise<JoinProgress> {
+  private async finishJoin(ownDevice = false): Promise<JoinProgress> {
     const device = await this.deps.session.connect();
     await this.loadKeys(new SpaceApi(device.client));
     await this.writeOwnDevice(device, null);
     await this.engine(device.client).sync();
     await this.deps.secrets.remove(NAMES.join);
-    return { state: 'joined' };
+    return ownDevice ? { state: 'joined', ownDevice: true } : { state: 'joined' };
   }
 
   /**

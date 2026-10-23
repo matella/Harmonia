@@ -162,6 +162,45 @@ describe('joining a space with data of your own', () => {
   });
 });
 
+describe('adding one of my devices', () => {
+  it('becomes the same person, re-attributes its dates and uploads nothing of its old self', async () => {
+    const server = new InMemoryTransport();
+    const phone = await device(server, 'Europe/Brussels');
+    const tablet = await device(server, 'Europe/Brussels');
+    await phone.profiles.save(alexProfile);
+    await phone.store.joinSpace(SPACE, 1);
+    await phone.engine.sync();
+    const alex = (await phone.profiles.persons()).find((p) => p.isSelf)!;
+
+    tablet.clock.set('2026-10-22T11:00:00Z');
+    await tablet.profiles.save({ ...samProfile, selfName: 'Alex (tablet)', displayName: null });
+    const tabletDate = await tablet.milestones.create(date('Tablet date'));
+    const oldSelf = (await tablet.profiles.persons()).find((p) => p.isSelf)!;
+
+    expect(await tablet.store.becomePerson(alex.id)).toBe(true);
+    expect(await tablet.store.becomePerson(alex.id)).toBe(false); // a retry changes nothing
+    await tablet.store.joinSpace(SPACE, 1, { queueProfile: false });
+    expect((await tablet.store.outbox()).map((e) => e.id)).not.toContain(oldSelf.id);
+    await tablet.engine.sync({ pullOnly: true, adoptProfile: true });
+    await tablet.engine.sync();
+    await phone.engine.sync();
+
+    expect((await tablet.profiles.persons()).map((p) => [p.id, p.displayName, p.isSelf])).toEqual([
+      [alex.id, 'Alex', true],
+    ]);
+    expect((await tablet.profiles.get())?.startDate).toBe(alexProfile.startDate); // no question asked
+    const authors = await phone.driver.query<{ author_person_id: string }>(
+      'SELECT author_person_id FROM milestones WHERE id = ?',
+      [tabletDate.id],
+    );
+    expect(authors).toEqual([{ author_person_id: alex.id }]);
+    expect((await phone.profiles.persons()).map((p) => p.displayName).sort()).toEqual([
+      'Alex',
+      'Sam',
+    ]);
+  });
+});
+
 describe('invite codes', () => {
   const inviteId = '0f1e2d3c-4b5a-4968-8776-655443322110';
   const secret = new Uint8Array(32).map((_, i) => i * 7);

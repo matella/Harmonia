@@ -1,5 +1,5 @@
 import type { Clock } from '../domain/clock';
-import { compareHlc, type Hlc } from '../domain/hlc';
+import { compareHlc, ZERO_HLC, type Hlc } from '../domain/hlc';
 import { SYNC_SCHEMA, type SyncedRecordType } from '../domain/sync-schema';
 import type { ChangeJournal } from '../persistence/change-journal';
 import type { SqlDriver, SqlExecutor, SqlValue } from '../persistence/sql-driver';
@@ -273,6 +273,45 @@ export class SyncStore {
     });
   }
 
+  /**
+   * A device added as one of an existing person's devices becomes that person (§7.6): its
+   * own onboarding person is replaced by a local row for the space's person, kept as this
+   * device's owner, and everything it authored is re-attributed. The space's version of
+   * the person (name) arrives with the next pull and wins, because this row starts at the
+   * oldest version. Returns false when this device already is that person.
+   */
+  async becomePerson(personId: string): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const self = (
+        await tx.query<{ id: string; display_name: string | null }>(
+          'SELECT id, display_name FROM persons WHERE is_self = 1',
+        )
+      )[0];
+      if (self?.id === personId) return false;
+      const now = this.clock.now().toString();
+      if (self) await tx.run('UPDATE persons SET is_self = 0 WHERE id = ?', [self.id]);
+      await tx.run(
+        `INSERT INTO persons (id, display_name, is_self, is_placeholder, version, created_at, updated_at)
+         VALUES (?, ?, 1, 0, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET is_self = 1, is_placeholder = 0`,
+        [personId, self?.display_name ?? null, ZERO_HLC, now, now],
+      );
+      if (self) {
+        for (const table of ['relationship_profile', 'milestones', 'memories']) {
+          await tx.run(`UPDATE ${table} SET author_person_id = ? WHERE author_person_id = ?`, [
+            personId,
+            self.id,
+          ]);
+        }
+        await tx.run(`DELETE FROM outbox WHERE record_type = 'person' AND record_id = ?`, [
+          self.id,
+        ]);
+        await tx.run('DELETE FROM persons WHERE id = ?', [self.id]);
+      }
+      return true;
+    });
+  }
+
   /** The device list of the space, as received end to end. */
   async devices(): Promise<SpaceDevice[]> {
     const rows = await this.db.query<{
@@ -394,6 +433,28 @@ export class SyncStore {
         [id],
       );
       if ((self[0]?.n ?? 0) > 0) throw new RefusedRecordError('tombstone for this device owner');
+    }
+    if (record.type === 'device' && current[0]) {
+      // A device's keys never change, and a removal is permanent, whatever the version.
+      const known = (
+        await tx.query<{
+          sign_public_key: string;
+          box_public_key: string;
+          revoked_at: string | null;
+        }>('SELECT sign_public_key, box_public_key, revoked_at FROM space_devices WHERE id = ?', [
+          id,
+        ])
+      )[0];
+      if (
+        known &&
+        (known.sign_public_key !== record.payload['sign_public_key'] ||
+          known.box_public_key !== record.payload['box_public_key'])
+      ) {
+        throw new RefusedRecordError('changed keys for a known device');
+      }
+      if (known?.revoked_at && record.payload['revoked_at'] === null) {
+        throw new RefusedRecordError('undoing a device removal');
+      }
     }
 
     const columns = payloadColumns(record.type);

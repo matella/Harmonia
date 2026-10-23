@@ -489,5 +489,45 @@ describe('sync engine (two devices, in-memory server)', () => {
       [own.id],
     );
     expect(await b.store.writeOwnDevice(own)).toBe(false);
+
+    // A received record can neither change a known device's keys nor undo its removal.
+    const sealedDevice = (version: string, record: Record<string, unknown>) => {
+      const at = {
+        spaceId: SPACE,
+        recordType: 'device',
+        recordId: own.id,
+        epoch: 1,
+        version,
+        deleted: false,
+      };
+      const payload = {
+        person_id: own.personId,
+        sign_public_key: own.signPublicKey,
+        box_public_key: own.boxPublicKey,
+        platform: 'android',
+        revoked_at: null,
+        author_person_id: null,
+        ...record,
+      };
+      return {
+        recordType: 'device' as const,
+        recordId: own.id,
+        epoch: 1,
+        version,
+        deleted: false,
+        ...crypto.encryptRecord(keyring.key(1)!, at, JSON.stringify({ format: 1, data: payload })),
+      };
+    };
+    await server.push(SPACE, [
+      sealedDevice('1792670000001-000000-0000beef', { sign_public_key: 'C'.repeat(43) + '=' }),
+    ]);
+    expect((await b.engine.sync()).rejected).toBe(1);
+    await server.push(SPACE, [sealedDevice('1792670000002-000000-0000beef', {})]); // revoked_at: null
+    expect((await b.engine.sync()).rejected).toBe(1);
+    const [listed] = await b.store.devices();
+    expect([listed.signPublicKey, listed.revokedAt]).toEqual([
+      own.signPublicKey,
+      '2026-10-23T12:00:00Z',
+    ]);
   });
 });

@@ -26,7 +26,7 @@ type View =
   | { kind: 'off' }
   | { kind: 'start' }
   | { kind: 'join' }
-  | { kind: 'invite'; code: string; progress: InviteProgress }
+  | { kind: 'invite'; code: string; progress: InviteProgress; forMe: boolean }
   | { kind: 'joining'; progress: JoinProgress }
   | { kind: 'member' }
   | { kind: 'noKey' };
@@ -178,7 +178,11 @@ const POLL_MS = 3000;
                     <h2 id="claim-heading" class="hm-section__title">
                       {{ 'sharing.claimedTitle' | t }}
                     </h2>
-                    <p class="hm-section__hint">{{ 'sharing.claimedBody' | t }}</p>
+                    <p class="hm-section__hint">
+                      {{
+                        (invite.forMe ? 'sharing.addDeviceClaimedBody' : 'sharing.claimedBody') | t
+                      }}
+                    </p>
                     <p
                       class="safety"
                       [attr.aria-label]="
@@ -212,7 +216,9 @@ const POLL_MS = 3000;
                     <h2 id="code-heading" class="hm-section__title">
                       {{ 'sharing.codeTitle' | t }}
                     </h2>
-                    <p class="hm-section__hint">{{ 'sharing.codeHint' | t }}</p>
+                    <p class="hm-section__hint">
+                      {{ (invite.forMe ? 'sharing.addDeviceCodeHint' : 'sharing.codeHint') | t }}
+                    </p>
                     <p class="code hm-card" translate="no">{{ invite.code }}</p>
                     <div class="actions">
                       <button
@@ -333,6 +339,14 @@ const POLL_MS = 3000;
                   } @else {
                     <ion-icon name="sync-outline" aria-hidden="true" />{{ 'sharing.syncNow' | t }}
                   }
+                </button>
+                <button
+                  type="button"
+                  class="hm-btn hm-btn--outline"
+                  [disabled]="busy()"
+                  (click)="addDevice()"
+                >
+                  <ion-icon name="add-outline" aria-hidden="true" />{{ 'sharing.addDevice' | t }}
                 </button>
               </div>
               <p class="hm-section__hint" role="status">{{ syncStatus() }}</p>
@@ -550,7 +564,15 @@ export class SharingPage implements OnInit, OnDestroy {
     await this.run(async () => {
       await this.sharing.startSharing(this.selfName());
       const code = await this.sharing.createInvite();
-      this.view.set({ kind: 'invite', code, progress: { state: 'waiting' } });
+      this.view.set({ kind: 'invite', code, progress: { state: 'waiting' }, forMe: false });
+    });
+  }
+
+  /** §7.6: an invite for one of my own devices, approved as me. */
+  protected async addDevice(): Promise<void> {
+    await this.run(async () => {
+      const code = await this.sharing.createInvite(true);
+      this.view.set({ kind: 'invite', code, progress: { state: 'waiting' }, forMe: true });
     });
   }
 
@@ -563,10 +585,11 @@ export class SharingPage implements OnInit, OnDestroy {
   }
 
   protected async approve(): Promise<void> {
+    const forMe = this.inviteView()?.forMe ?? false;
     await this.run(async () => {
       await this.sharing.approveInvite();
       this.view.set({ kind: 'member' });
-      this.tell('sharing.approved');
+      this.tell(forMe ? 'sharing.addDeviceApproved' : 'sharing.approved');
     });
   }
 
@@ -668,9 +691,9 @@ export class SharingPage implements OnInit, OnDestroy {
       if (status === 'off') return this.view.set({ kind: 'off' });
       if (status === 'memberWithoutKey') return this.view.set({ kind: 'noKey' });
       if (status === 'joining') return this.showJoinProgress(await this.sharing.checkJoin());
-      const code = await this.sharing.currentInviteCode();
-      if (!code) return this.view.set({ kind: 'member' });
-      this.view.set({ kind: 'invite', code, progress: await this.sharing.checkInvite() });
+      const invite = await this.sharing.currentInvite();
+      if (!invite) return this.view.set({ kind: 'member' });
+      this.view.set({ kind: 'invite', ...invite, progress: await this.sharing.checkInvite() });
       this.afterInviteCheck();
     } catch (error) {
       this.error.set(this.t.t(errorKey(error)));
@@ -713,9 +736,11 @@ export class SharingPage implements OnInit, OnDestroy {
     if (progress.state === 'joined') {
       const name = this.partnerName();
       this.view.set({ kind: 'member' });
-      void this.notice.show(
-        name ? this.t.t('sharing.joined', { name }) : this.t.t('sharing.joinedNoName'),
-      );
+      if (progress.ownDevice) this.tell('sharing.joinedOwnDevice');
+      else
+        void this.notice.show(
+          name ? this.t.t('sharing.joined', { name }) : this.t.t('sharing.joinedNoName'),
+        );
       return;
     }
     if (progress.state === 'gone') {

@@ -26,8 +26,13 @@ class FakeSharing {
   async refresh(): Promise<SharingView> {
     return this.view;
   }
-  async currentInviteCode(): Promise<string | null> {
-    return this.inviteCode;
+  async currentInvite(): Promise<{ code: string; forMe: boolean } | null> {
+    return this.inviteCode ? { code: this.inviteCode, forMe: this.inviteForMe } : null;
+  }
+  inviteForMe = false;
+  async createInvite(forMe = false): Promise<string> {
+    this.calls.push(forMe ? 'invite:me' : 'invite:partner');
+    return 'H1.code';
   }
   async checkInvite(): Promise<InviteProgress> {
     return this.invite;
@@ -174,6 +179,15 @@ describe('SharingPage', () => {
     expect(buttons(el)).toEqual(['Your partner’s: October 14, 2026', 'Yours: October 6, 2026']);
     await click(fixture, 'Yours:');
     expect(fake.calls).toEqual(['choose:mine']);
+    fixture.destroy();
+  });
+
+  it('creates an invite for one of my own devices, with its own wording', async () => {
+    fake.view = 'member';
+    const { fixture, el } = await render();
+    await click(fixture, 'Add one of my devices');
+    expect(fake.calls).toEqual(['invite:me']);
+    expect(el.textContent).toContain('Enter this code on your other device');
     fixture.destroy();
   });
 

@@ -599,10 +599,25 @@ The design is in §7 (revised the same day: each device writes only its own reco
 - Live: after a real join, both phones list exactly both devices, each with the keys that device holds.
 
 **Next:**
-- Adding one of my devices (§7.6).
+- Adding one of my devices (§7.6): done in slice 3.
 - Removing a device with rotation (§7.4); only my own devices on screen (§7.7, decided).
 
 **Found:** *Delete all data* does not touch sharing. The device's sharing keys stay in secure storage, and the server still counts the device as a member of its space. It should end sharing on this device first (or ask to leave). Left for a follow-up.
+
+### Phase 3, slice 3: adding one of my devices (2026-10-23)
+
+Builds §7.6. In the shared state, *Add one of my devices* creates the same kind of invite, remembered locally as "for me"; approving it admits the device as this person (`approve_invite(invite, as_person)`). Its screens say "your other device" instead of "your partner".
+- **On the new device:** *Join with a code* works for both cases (its hint now mentions both). After approval, `accept_invite` names the person it now belongs to. If that's not the person it claimed with, it **becomes that person** (`SyncStore.becomePerson`): its onboarding person is replaced by a local row for the space's person, kept as this device's owner and starting at the oldest version so the space's name wins. Everything it authored is re-attributed, and its old self is never uploaded. It then adopts the space's profile **without asking about the start date**, merges its dates, writes its own device record and says "This device now shares your space too."
+- Retrying after a crash is safe: becoming the person a second time changes nothing.
+
+**Security review of slice 2 (device list), fixed here:** a received device record can no longer change the keys of a device already listed, or undo a removal, whatever its version (`RefusedRecordError`). The suggestion to also sign each device record was not taken: only members can write records, and members are trusted by design (§11).
+
+**Tests:**
+- sql.js: a tablet becomes Alex; its date is re-attributed; nothing of its old self is queued; the phone still lists exactly Alex and Sam.
+- Engine: refused key changes and refused un-removal.
+- Live: Alex adds a tablet with a different start date. The safety codes match, there is no date question, both devices share one person, the tablet's date reaches the phone, and the device list has two devices of the same person.
+- Page spec: the button creates a "for me" invite with its own wording.
+- Not run on a device: the screens are the partner flow's, apart from the button and wording covered by the spec.
 
 **Phase 2 status:** the invite and core sync are complete for the profile, persons and dates. They are verified between the Android emulator and the browser preview against a local server. Next is phase 3 (devices and leaving), then phase 4 (recovery key), which real users need before `SYNC_CONFIG` can be set.
 
