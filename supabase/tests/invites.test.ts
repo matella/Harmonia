@@ -8,6 +8,7 @@ const users = {
   sam: '00000000-0000-4000-8000-0000000001b1',
   eve: '00000000-0000-4000-8000-0000000001c1',
   kim: '00000000-0000-4000-8000-0000000001d1',
+  lou: '00000000-0000-4000-8000-0000000001e1',
 } as const;
 const people = {
   alex: '00000000-0000-4000-8000-0000000002a1',
@@ -47,9 +48,19 @@ describe('invites v2 (PGlite + Supabase shim)', () => {
     await expect(
       run(users.alex, `select * from create_space($1, $2)`, [bytes(9, 80), people.eve]),
     ).rejects.toThrow(/already in a space/);
+    // Person IDs are unique per space: knowing Alex's does not block anyone.
+    const [elsewhere] = await run<{ space_id: string }>(
+      users.lou,
+      `select * from create_space($1, $2)`,
+      [bytes(9, 80), people.alex],
+    );
+    expect(elsewhere.space_id).not.toBe(space);
+    // But nobody can join Alex's space under an ID it already has.
+    const invite = await newInvite();
     await expect(
-      run(users.kim, `select * from create_space($1, $2)`, [bytes(9, 80), people.alex]),
+      run(users.eve, `select * from claim_invite($1, $2)`, [invite, people.alex]),
     ).rejects.toThrow(/person exists/);
+    await run(users.alex, `select decline_invite($1)`, [invite]);
   });
 
   it('shows the claim to members only, with both of the joiner’s keys', async () => {
@@ -150,5 +161,25 @@ describe('invites v2 (PGlite + Supabase shim)', () => {
     await expect(run(users.alex, `select decline_invite($1)`, [invite])).rejects.toThrow(
       /already approved/,
     );
+  });
+
+  it('lets a device file a key envelope only for itself', async () => {
+    const [{ id: samDevice }] = await run<{ id: string }>(
+      users.sam,
+      `select current_device_id() as id`,
+    );
+    await expect(
+      run(
+        users.alex,
+        `insert into key_envelopes (space_id, epoch, device_id, sealed) values ($1, 1, $2, $3)`,
+        [space, samDevice, bytes(3, 80)],
+      ),
+    ).rejects.toThrow(/row-level security/);
+    // Its own filing, through finish_join, kept the signature it sent.
+    expect(
+      await server.q(`select length(signature) as n from key_envelopes where device_id = $1`, [
+        samDevice,
+      ]),
+    ).toEqual([{ n: null }]);
   });
 });

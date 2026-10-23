@@ -13,9 +13,10 @@ import { RelationshipRepository } from '../../src/app/core/persistence/relations
 import { SqlJsDriver } from '../../src/app/core/persistence/sqljs-driver';
 import { MemorySecureKeyStore } from '../../src/app/core/platform/secure-key-store';
 import { DeviceSession, type AuthStorage } from '../../src/app/core/sync/device-session';
-import { toBase64 } from '../../src/app/core/sync/encoding';
+import { toBase64, toBytea } from '../../src/app/core/sync/encoding';
 import { Sharing } from '../../src/app/core/sync/sharing';
 import { SpaceApi } from '../../src/app/core/sync/space-api';
+import { envelopeMessage, MissingSpaceKeyError } from '../../src/app/core/sync/space-keys';
 import { loadSyncCrypto, type SyncCrypto } from '../../src/app/core/sync/sync-crypto-port';
 import { SyncStore } from '../../src/app/core/sync/sync-store';
 
@@ -27,6 +28,14 @@ import { SyncStore } from '../../src/app/core/sync/sync-store';
 const live = process.env['SUPABASE_LIVE'] === '1';
 
 let crypto: SyncCrypto;
+
+/** Runs SQL as the database owner (like the server operator) in the Supabase container. */
+function psql(sql: string): string {
+  return execSync('docker exec -i supabase_db_Harmonia psql -U postgres -At -v ON_ERROR_STOP=1', {
+    input: sql,
+    encoding: 'utf-8',
+  }).trim();
+}
 let stack: { url: string; key: string };
 const dissolve: (() => Promise<unknown>)[] = [];
 
@@ -199,12 +208,17 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
     await kim.profiles.save(profile({ selfName: 'Kim' }));
     const device = await kim.session.connect();
     const key = crypto.newSpaceKey();
-    await kim.secrets.set('sharing.pendingKey', toBase64(key));
+    const spaceId = newId();
+    await kim.secrets.set('sharing.pendingKey', JSON.stringify({ spaceId, key: toBase64(key) }));
     const self = (await kim.profiles.persons()).find((p) => p.isSelf)!;
+    const sealed = crypto.sealSpaceKey(key, device.keys.boxPublicKey);
     const created = await new SpaceApi(device.client).createSpace(
-      crypto.sealSpaceKey(key, device.keys.boxPublicKey),
+      spaceId,
+      sealed,
+      crypto.sign(envelopeMessage(spaceId, 1, device.deviceId, sealed), device.keys),
       self.id,
     );
+    expect(created.spaceId).toBe(spaceId);
 
     await kim.sharing.startSharing('Kim'); // the retry
     expect((await kim.store.state())?.spaceId).toBe(created.spaceId);
@@ -227,6 +241,32 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
     expect(await lee.secrets.get(`space.${again.spaceId}.${again.epoch}`)).toBe(key);
     await lee.milestones.create(date('Still readable'));
     expect((await lee.sharing.sync()).rejected).toBe(0);
+  });
+
+  it('never takes a key the server planted for a device that lost its own', async () => {
+    const ann = await phone();
+    await ann.profiles.save(profile({}));
+    await ann.sharing.startSharing('Ann');
+    const state = (await ann.store.state())!;
+    const device = await ann.session.connect();
+
+    // The server (which can write any row) replaces Ann's envelope with a key it knows,
+    // first unsigned, then signed with a key that is not Ann's.
+    const planted = crypto.sealSpaceKey(crypto.newSpaceKey(), device.keys.boxPublicKey);
+    const stranger = crypto.generateDeviceKeys();
+    const forgedSignature = crypto.sign(
+      envelopeMessage(state.spaceId, 1, device.deviceId, planted),
+      stranger,
+    );
+    for (const signature of ['null', `'${toBytea(forgedSignature)}'`]) {
+      psql(
+        `update key_envelopes set sealed = '${toBytea(planted)}', signature = ${signature}
+         where device_id = '${device.deviceId}';`,
+      );
+      await ann.secrets.remove(`space.${state.spaceId}.${state.epoch}`);
+      await expect(ann.sharing.sync()).rejects.toBeInstanceOf(MissingSpaceKeyError);
+      expect(await ann.sharing.status()).toBe('memberWithoutKey');
+    }
   });
 
   it('cleans up', async () => {

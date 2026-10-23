@@ -440,6 +440,12 @@ No screens yet; everything below is driven by tests.
 - sql.js: `sync/join.test.ts` (6): adopting the space's profile over a newer local one, keeping one's own start, merged dates, placeholders replaced on both sides, going back to solo, invite codes.
 - Live local Supabase (`supabase/tests/sharing-flow-live.test.ts`, 5, `SUPABASE_LIVE=1`): the whole flow between two phones with both safety codes equal, the start-date choice surviving a restart and a crash at the moment it is recorded, syncing refused while the join waits for it, merged data and names, a lost space key reopened from the server, declining, finishing after a crash right after the server created the space, and sharing again after going solo on one device (same space, same key).
 
+**Security review fixes (2026-10-23, `20261023000100_signed_envelopes.sql`):**
+- **Signed key envelopes.** A device files the space key sealed to itself together with its own Ed25519 signature over the space, epoch, device and sealed key. It trusts an envelope from the server only with that signature. The server can write any row, so without this it could plant a key it knows for a device that lost its local copy (or that shares again after going solo) and read what that device writes next. A device now chooses its new space's ID itself, so it can sign before the server sees anything.
+- Members may file envelopes only for their own device. Rotation (phase 3) and recovery envelopes (phase 4) will go through checked functions.
+- **Person IDs are unique per space**, not across the server (`persons` key `(space_id, id)`), so knowing someone's ID does not let anyone block them from creating or joining a space. Joining a space under an ID it already has is still refused.
+- Tests: PGlite (envelopes only for one's own device, IDs per space) and live (a planted envelope, unsigned or signed by another key, is refused and the device reports it has no key).
+
 **Notes for 3b:**
 - `invite_claim` ignores expiry: an expired invite looks like "waiting" forever. Treat an invite older than 24 hours as gone, or return `expires_at`.
 - After going back to solo on one device, the server still counts that device as a member until phase 3 adds leaving, so claiming an invite returns `alreadyInSpace`. The screens need a clear message for it.

@@ -44,7 +44,18 @@ export interface AcceptedInvite extends SpaceMembership {
 export interface SealedEnvelope {
   spaceId: string;
   epoch: number;
+  deviceId: string | null;
   sealed: Uint8Array;
+  /** The sealing device's signature over `envelopeMessage(…)`; null if unsigned. */
+  signature: Uint8Array | null;
+}
+
+interface EnvelopeRow {
+  space_id: string;
+  epoch: number;
+  device_id: string | null;
+  sealed: string;
+  signature: string | null;
 }
 
 const MESSAGES: [RegExp, SpaceErrorCode][] = [
@@ -58,11 +69,21 @@ const MESSAGES: [RegExp, SpaceErrorCode][] = [
 export class SpaceApi {
   constructor(private readonly client: SupabaseClient) {}
 
-  async createSpace(sealedKey: Uint8Array, selfPerson: string): Promise<SpaceMembership> {
+  async createSpace(
+    space: string,
+    sealedKey: Uint8Array,
+    signature: Uint8Array,
+    selfPerson: string,
+  ): Promise<SpaceMembership> {
     const [row] = await this.call<{ space_id: string; person_id: string; epoch: number }[]>(
       'createSpace',
       'create_space',
-      { sealed_key: toBytea(sealedKey), self_person: selfPerson },
+      {
+        space,
+        sealed_key: toBytea(sealedKey),
+        signature: toBytea(signature),
+        self_person: selfPerson,
+      },
     );
     return { spaceId: row.space_id, personId: row.person_id, epoch: row.epoch };
   }
@@ -119,21 +140,26 @@ export class SpaceApi {
     };
   }
 
-  async finishJoin(inviteId: string, sealedKey: Uint8Array): Promise<void> {
+  async finishJoin(inviteId: string, sealedKey: Uint8Array, signature: Uint8Array): Promise<void> {
     await this.call('finishJoin', 'finish_join', {
       invite: inviteId,
       sealed_key: toBytea(sealedKey),
+      signature: toBytea(signature),
     });
   }
 
   /** The space keys sealed to this device (row-level security returns only its own). */
   async ownEnvelopes(): Promise<SealedEnvelope[]> {
-    const { data, error } = await this.client.from('key_envelopes').select('space_id,epoch,sealed');
+    const { data, error } = await this.client
+      .from('key_envelopes')
+      .select('space_id,epoch,device_id,sealed,signature');
     if (error) throw new SpaceApiError(error.code ? 'server' : 'network', 'ownEnvelopes');
-    return ((data ?? []) as { space_id: string; epoch: number; sealed: string }[]).map((row) => ({
+    return ((data ?? []) as EnvelopeRow[]).map((row) => ({
       spaceId: row.space_id,
       epoch: row.epoch,
+      deviceId: row.device_id,
       sealed: fromBytea(row.sealed),
+      signature: row.signature ? fromBytea(row.signature) : null,
     }));
   }
 

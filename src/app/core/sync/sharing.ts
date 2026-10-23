@@ -1,12 +1,13 @@
 import type { ValidProfile } from '../domain/validation';
 import { LIMITS } from '../domain/validation';
+import { newId as newUuid } from '../persistence/ids';
 import type { RelationshipRepository } from '../persistence/relationship.repository';
 import type { SecureKeyStore } from '../platform/secure-key-store';
 import type { DeviceSession } from './device-session';
 import { fromBase64, toBase64 } from './encoding';
 import { formatInviteCode, parseInviteCode } from './invite-code';
 import { SpaceApi, SpaceApiError } from './space-api';
-import { MissingSpaceKeyError, SpaceKeys } from './space-keys';
+import { envelopeMessage, MissingSpaceKeyError, SpaceKeys } from './space-keys';
 import { SupabaseTransport } from './supabase-transport';
 import type { DevicePublicKeys, SyncCrypto } from './sync-crypto-port';
 import { SyncEngine, type SyncReport } from './sync-engine';
@@ -103,17 +104,25 @@ export class Sharing {
     const device = await this.deps.session.connect();
     const api = new SpaceApi(device.client);
 
-    const stored = await this.deps.secrets.get(NAMES.pendingKey);
-    const key = stored ? fromBase64(stored) : this.deps.crypto.newSpaceKey();
-    if (!stored) await this.deps.secrets.set(NAMES.pendingKey, toBase64(key));
-    const space = await api.createSpace(
-      this.deps.crypto.sealSpaceKey(key, device.keys.boxPublicKey),
-      selfId,
+    // The new space's ID and key are chosen and stored here first, so the envelope can be
+    // signed before the server sees it and a retry after a crash reuses both.
+    let pending = await this.read<{ spaceId: string; key: string }>(NAMES.pendingKey);
+    if (!pending) {
+      pending = { spaceId: newUuid(), key: toBase64(this.deps.crypto.newSpaceKey()) };
+      await this.write(NAMES.pendingKey, pending);
+    }
+    const key = fromBase64(pending.key);
+    const sealedKey = this.deps.crypto.sealSpaceKey(key, device.keys.boxPublicKey);
+    const signature = this.deps.crypto.sign(
+      envelopeMessage(pending.spaceId, 1, device.deviceId, sealedKey),
+      device.keys,
     );
-    // If the server already had this device in a space (a retry, or sharing again after
-    // going back to solo here), the key that counts is the one sealed to this device.
-    const sealed = await this.ownKey(api, space.spaceId, space.epoch);
-    await this.keys.save(space.spaceId, space.epoch, sealed ?? key);
+    const space = await api.createSpace(pending.spaceId, sealedKey, signature, selfId);
+    // If the server already had this device in a space (sharing again after going back to
+    // solo here), the key that counts is the one this device sealed and signed for it.
+    const own = await this.ownKey(api, space.spaceId, space.epoch);
+    if (!own && space.spaceId !== pending.spaceId) throw new MissingSpaceKeyError();
+    await this.keys.save(space.spaceId, space.epoch, own ?? key);
     await this.deps.store.joinSpace(space.spaceId, space.epoch);
     await this.deps.secrets.remove(NAMES.pendingKey);
     await this.sync();
@@ -246,9 +255,14 @@ export class Sharing {
     await this.keys.load(spaceId, epoch);
     const key = this.keys.key(epoch);
     if (!key) throw new MissingSpaceKeyError();
+    const sealedKey = this.deps.crypto.sealSpaceKey(key, device.keys.boxPublicKey);
     await api.finishJoin(
       pending.inviteId,
-      this.deps.crypto.sealSpaceKey(key, device.keys.boxPublicKey),
+      sealedKey,
+      this.deps.crypto.sign(
+        envelopeMessage(spaceId, epoch, device.deviceId, sealedKey),
+        device.keys,
+      ),
     );
 
     // Captured before adopting the space's profile, so a retry after a crash still knows it.
@@ -315,15 +329,23 @@ export class Sharing {
     return { state: 'joined' };
   }
 
-  /** The space key sealed to this device on the server, if any. */
+  /**
+   * The space key this device sealed to itself and signed, as stored on the server. An
+   * envelope without this device's valid signature is ignored: the server can write any
+   * row, and must not be able to hand a device a key it knows.
+   */
   private async ownKey(api: SpaceApi, spaceId: string, epoch: number): Promise<Uint8Array | null> {
     const device = await this.deps.session.connect();
     for (const envelope of await api.ownEnvelopes()) {
       if (envelope.spaceId !== spaceId || envelope.epoch !== epoch) continue;
+      if (envelope.deviceId !== device.deviceId || !envelope.signature) continue;
+      const message = envelopeMessage(spaceId, epoch, device.deviceId, envelope.sealed);
+      if (!this.deps.crypto.verify(message, envelope.signature, device.keys.signPublicKey))
+        continue;
       try {
         return this.deps.crypto.openSealedSpaceKey(envelope.sealed, device.keys);
       } catch {
-        // Not sealed to these keys.
+        // Signed by this device but not openable with its keys: ignore.
       }
     }
     return null;
@@ -339,15 +361,9 @@ export class Sharing {
     } catch (error) {
       if (!(error instanceof MissingSpaceKeyError)) throw error;
     }
-    const device = await this.deps.session.connect();
-    for (const envelope of await api.ownEnvelopes()) {
-      if (envelope.spaceId !== state.spaceId) continue;
-      try {
-        const key = this.deps.crypto.openSealedSpaceKey(envelope.sealed, device.keys);
-        await this.keys.save(state.spaceId, envelope.epoch, key);
-      } catch {
-        // Not sealed to these keys; ignore.
-      }
+    for (let epoch = 1; epoch <= state.epoch; epoch++) {
+      const key = await this.ownKey(api, state.spaceId, epoch);
+      if (key) await this.keys.save(state.spaceId, epoch, key);
     }
     await this.keys.load(state.spaceId, state.epoch);
   }

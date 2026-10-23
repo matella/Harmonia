@@ -15,6 +15,26 @@ export class MissingSpaceKeyError extends Error {
 
 const name = (spaceId: string, epoch: number) => `space.${spaceId}.${epoch}`;
 
+/**
+ * What a device signs when it files a space key sealed to itself: the envelope's place
+ * and contents. A device trusts an envelope from the server only with its own valid
+ * signature, so the server cannot plant a key it knows (§17).
+ */
+export function envelopeMessage(
+  spaceId: string,
+  epoch: number,
+  deviceId: string,
+  sealed: Uint8Array,
+): Uint8Array {
+  const head = new TextEncoder().encode(
+    ['harmonia.envelope.v1', spaceId, String(epoch), deviceId, ''].join('\u0000'),
+  );
+  const message = new Uint8Array(head.length + sealed.length);
+  message.set(head, 0);
+  message.set(sealed, head.length);
+  return message;
+}
+
 export class SpaceKeys implements SpaceKeyring {
   private readonly keys = new Map<number, Uint8Array>();
   private epoch = 1;
