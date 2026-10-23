@@ -46,7 +46,7 @@ describe.skipIf(!live)('sharing on a live local Supabase', () => {
   });
 
   it('creates a space and stores an encrypted record only members can read', async () => {
-    const created = await inviter.rpc('create_space', { sealed_key: hex(random(80)) });
+    const created = await inviter.rpc('create_space', { sealed_key: hex(random(80)), self_person: crypto.randomUUID() });
     expect(created.error).toBeNull();
     space = (created.data as { space_id: string }[])[0].space_id;
     const insert = await inviter.from('records').insert({
@@ -77,11 +77,13 @@ describe.skipIf(!live)('sharing on a live local Supabase', () => {
     const invite = await inviter.rpc('create_invite', { wrapped_key: hex(random(72)) });
     expect(invite.error).toBeNull();
     const id = invite.data as string;
-    expect((await partner.rpc('claim_invite', { invite: id })).error).toBeNull();
-    expect((await stranger.rpc('claim_invite', { invite: id })).error?.message).toMatch(/invite unavailable/);
+    expect((await partner.rpc('claim_invite', { invite: id, person: crypto.randomUUID() })).error).toBeNull();
+    expect((await stranger.rpc('claim_invite', { invite: id, person: crypto.randomUUID() })).error?.message).toMatch(/invite unavailable/);
     expect((await partner.from('records').select('record_id')).data).toEqual([]);
-    expect((await stranger.rpc('approve_invite', { invite: id, sealed_key: hex(random(80)) })).error?.message).toMatch(/not allowed/);
-    expect((await inviter.rpc('approve_invite', { invite: id, sealed_key: hex(random(80)) })).error).toBeNull();
+    expect((await stranger.rpc('approve_invite', { invite: id })).error?.message).toMatch(/not allowed/);
+    expect((await inviter.rpc('approve_invite', { invite: id })).error).toBeNull();
+    expect((await partner.rpc('accept_invite', { invite: id })).error).toBeNull();
+    expect((await partner.rpc('finish_join', { invite: id, sealed_key: hex(random(80)) })).error).toBeNull();
     expect((await partner.from('records').select('record_id')).data).toEqual([{ record_id: recordId }]);
     expect((await partner.from('key_envelopes').select('id')).data).toHaveLength(1);
   });

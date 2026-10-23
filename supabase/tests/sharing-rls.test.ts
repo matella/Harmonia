@@ -40,6 +40,12 @@ async function register(user: User, seed: number) {
   );
 }
 
+const people = {
+  matthieu: '00000000-0000-4000-8000-00000000f0a1',
+  sam: '00000000-0000-4000-8000-00000000f0b1',
+  stranger: '00000000-0000-4000-8000-00000000f0c1',
+} as const;
+
 let space: string;
 let matthieu: string;
 let firstRecordId: string;
@@ -58,7 +64,7 @@ describe('sharing schema (PGlite + Supabase shim)', () => {
   });
 
   it('creates a space with its first person, and only members see it', async () => {
-    const [created] = await as('matthieuPhone', () => q<{ space_id: string; person_id: string }>(`select * from create_space($1)`, [bytes(9, 80)]));
+    const [created] = await as('matthieuPhone', () => q<{ space_id: string; person_id: string }>(`select * from create_space($1, $2)`, [bytes(9, 80), people.matthieu]));
     space = created.space_id;
     matthieu = created.person_id;
     expect(await as('matthieuPhone', () => q(`select id from spaces`))).toHaveLength(1);
@@ -91,16 +97,23 @@ describe('sharing schema (PGlite + Supabase shim)', () => {
 
   it('invites are single use, need approval, and reveal only the wrapped key', async () => {
     const [{ create_invite: invite }] = await as('matthieuPhone', () => q<{ create_invite: string }>(`select create_invite($1)`, [bytes(7, 72)]));
-    const [claim] = await as('samPhone', () => q<{ envelope: Uint8Array; inviter_sign_public_key: Uint8Array }>(`select * from claim_invite($1)`, [invite]));
+    const [claim] = await as('samPhone', () =>
+      q<{ inviter_sign_public_key: Uint8Array; inviter_box_public_key: Uint8Array }>(`select * from claim_invite($1, $2)`, [invite, people.sam]),
+    );
     expect([...claim.inviter_sign_public_key]).toEqual([...bytes(1)]);
-    await expect(as('stranger', () => q(`select * from claim_invite($1)`, [invite]))).rejects.toThrow(/invite unavailable/);
+    expect([...claim.inviter_box_public_key]).toEqual([...bytes(101)]);
+    await expect(as('stranger', () => q(`select * from claim_invite($1, $2)`, [invite, people.stranger]))).rejects.toThrow(/invite unavailable/);
 
     // Claimed but not approved: still not a member.
     expect(await as('samPhone', () => q(`select * from records`))).toHaveLength(0);
-    await expect(as('stranger', () => q(`select approve_invite($1, $2)`, [invite, bytes(8, 80)]))).rejects.toThrow(/not allowed/);
+    await expect(as('stranger', () => q(`select approve_invite($1)`, [invite]))).rejects.toThrow(/not allowed/);
 
-    await as('matthieuPhone', () => q(`select approve_invite($1, $2)`, [invite, bytes(8, 80)]));
+    await as('matthieuPhone', () => q(`select approve_invite($1)`, [invite]));
     expect(await as('samPhone', () => q(`select record_id from records`))).toHaveLength(1);
+    // The joiner takes the key from the invite envelope, then files its own sealed copy.
+    const [accepted] = await as('samPhone', () => q<{ envelope: Uint8Array }>(`select * from accept_invite($1)`, [invite]));
+    expect(accepted.envelope[0]).toBe(7);
+    await as('samPhone', () => q(`select finish_join($1, $2)`, [invite, bytes(8, 80)]));
     // Each device reads only the key envelope sealed to it.
     const envelopes = await as('samPhone', () => q<{ sealed: Uint8Array }>(`select sealed from key_envelopes`));
     expect(envelopes.map((e) => e.sealed[0])).toEqual([8]);
@@ -109,7 +122,7 @@ describe('sharing schema (PGlite + Supabase shim)', () => {
   it('rejects expired invites', async () => {
     const [{ create_invite: invite }] = await as('matthieuPhone', () => q<{ create_invite: string }>(`select create_invite($1)`, [bytes(7, 72)]));
     await q(`update invites set expires_at = now() - interval '1 minute' where id = $1`, [invite]);
-    await expect(as('stranger', () => q(`select * from claim_invite($1)`, [invite]))).rejects.toThrow(/invite unavailable/);
+    await expect(as('stranger', () => q(`select * from claim_invite($1, $2)`, [invite, people.stranger]))).rejects.toThrow(/invite unavailable/);
   });
 
   it('never lets an older version overwrite a newer one', async () => {
@@ -146,10 +159,11 @@ describe('sharing schema (PGlite + Supabase shim)', () => {
 
   it('adds a second device for the same person, then revokes it with a new epoch', async () => {
     const [{ create_invite: invite }] = await as('matthieuPhone', () => q<{ create_invite: string }>(`select create_invite($1)`, [bytes(7, 72)]));
-    await as('matthieuTablet', () => q(`select * from claim_invite($1)`, [invite]));
+    await as('matthieuTablet', () => q(`select * from claim_invite($1, gen_random_uuid())`, [invite]));
     const [{ approve_invite: person }] = await as('matthieuPhone', () =>
-      q<{ approve_invite: string }>(`select approve_invite($1, $2, $3)`, [invite, bytes(10, 80), matthieu]),
+      q<{ approve_invite: string }>(`select approve_invite($1, $2)`, [invite, matthieu]),
     );
+    await as('matthieuTablet', () => q(`select finish_join($1, $2)`, [invite, bytes(10, 80)]));
     expect(person).toBe(matthieu);
     expect(await as('matthieuTablet', () => q(`select * from records`))).toHaveLength(2);
 

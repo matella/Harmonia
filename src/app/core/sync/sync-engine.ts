@@ -97,7 +97,11 @@ export class SyncEngine {
     this.capability = options.capability ?? SYNC_CAPABILITY;
   }
 
-  async sync(): Promise<SyncReport> {
+  /**
+   * `pullOnly` with `adoptProfile` is the joiner's first step (§6.2): take the space's
+   * profile whatever its version, before anything of this device is uploaded.
+   */
+  async sync(options: { pullOnly?: boolean; adoptProfile?: boolean } = {}): Promise<SyncReport> {
     const state = await this.store.state();
     if (!state) throw new Error('Sharing is not set up on this device.');
     if (state.capability < this.capability) await this.store.restartPull(this.capability);
@@ -112,9 +116,11 @@ export class SyncEngine {
     };
     const changed = new Set<SyncedRecordType>();
 
-    await this.pull(state.spaceId, report, changed);
-    await this.push(state.spaceId, report);
-    await this.pull(state.spaceId, report, changed);
+    await this.pull(state.spaceId, report, changed, options.adoptProfile ?? false);
+    if (!options.pullOnly) {
+      await this.push(state.spaceId, report);
+      await this.pull(state.spaceId, report, changed, false);
+    }
 
     report.changedTypes = PHASE2_TYPES.filter((t) => changed.has(t));
     return report;
@@ -124,6 +130,7 @@ export class SyncEngine {
     spaceId: string,
     report: SyncReport,
     changed: Set<SyncedRecordType>,
+    adoptProfile: boolean,
   ): Promise<void> {
     const state = await this.store.state();
     const seen = state?.cursor ?? 0;
@@ -147,7 +154,8 @@ export class SyncEngine {
           reject();
         } else {
           try {
-            if (await this.store.apply(record, this.defaults())) {
+            const force = adoptProfile && record.type === 'profile';
+            if (await this.store.apply(record, this.defaults(), { force })) {
               report.applied++;
               changed.add(record.type);
             }

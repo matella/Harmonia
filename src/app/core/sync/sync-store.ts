@@ -43,6 +43,12 @@ export class RefusedRecordError extends Error {
   }
 }
 
+export interface StartOfRelationship {
+  startDate: string;
+  startTime: string | null;
+  startTimeZoneId: string | null;
+}
+
 export interface OutboxEntry {
   type: SyncedRecordType;
   id: string;
@@ -76,7 +82,12 @@ export class SyncStore {
    * (the joiner's data is merged in, §6.2), in one transaction so a crash cannot leave
    * existing records out of the outbox. From now on local writes enter the outbox.
    */
-  async joinSpace(spaceId: string, epoch: number): Promise<void> {
+  async joinSpace(
+    spaceId: string,
+    epoch: number,
+    options: { queueProfile?: boolean } = {},
+  ): Promise<void> {
+    const queueProfile = options.queueProfile ?? true;
     await this.db.transaction(async (tx) => {
       await tx.run(
         `INSERT INTO sync_state (id, space_id, epoch, cursor, created_at) VALUES (1, ?, ?, 0, ?)
@@ -84,6 +95,8 @@ export class SyncStore {
         [spaceId, epoch, this.clock.now().toString()],
       );
       for (const type of PHASE2_TYPES) {
+        // A joiner adopts the space's profile first (§6.2), so its own is not queued.
+        if (type === 'profile' && !queueProfile) continue;
         const table = SYNC_SCHEMA[type].table;
         const rows = await tx.query<{ id: string | number; version: string }>(
           `SELECT id, version FROM ${table}`,
@@ -174,14 +187,83 @@ export class SyncStore {
   }
 
   /**
+   * The partner's own person has arrived: a name typed for them on this device was only a
+   * stand-in (§6.2: each person's own name wins). Placeholders were never uploaded.
+   */
+  private async dropPlaceholders(tx: SqlExecutor): Promise<void> {
+    await tx.run(
+      `DELETE FROM outbox WHERE record_type = 'person'
+         AND record_id IN (SELECT id FROM persons WHERE is_placeholder = 1)`,
+    );
+    await tx.run('DELETE FROM persons WHERE is_placeholder = 1');
+  }
+
+  /** The shared start of the relationship as stored here. */
+  async startOfRelationship(): Promise<StartOfRelationship | null> {
+    const rows = await this.db.query<{
+      start_date: string;
+      start_time: string | null;
+      start_time_zone_id: string | null;
+    }>('SELECT start_date, start_time, start_time_zone_id FROM relationship_profile WHERE id = 1');
+    const row = rows[0];
+    return row
+      ? {
+          startDate: row.start_date,
+          startTime: row.start_time,
+          startTimeZoneId: row.start_time_zone_id,
+        }
+      : null;
+  }
+
+  /**
+   * The joiner keeps their own start (§6.2): written with a fresh version so it wins on
+   * every device, and queued for upload. The label and other fields stay the space's.
+   */
+  async restampStart(start: StartOfRelationship): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const version = await this.journal.stamp(tx);
+      const author = await this.journal.selfPersonId(tx);
+      await tx.run(
+        `UPDATE relationship_profile
+           SET start_date = ?, start_time = ?, start_time_zone_id = ?, version = ?, author_person_id = ?, updated_at = ?
+         WHERE id = 1`,
+        [
+          start.startDate,
+          start.startTime,
+          start.startTimeZoneId,
+          version,
+          author,
+          this.clock.now().toString(),
+        ],
+      );
+      await this.journal.changed(tx, 'profile', '1', version);
+    });
+  }
+
+  /**
+   * Turns this device back into a solo device: sharing state and the outbox go, every
+   * record stays (§6.5). Also the way out when the space key is gone.
+   */
+  async leaveLocally(): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx.run('DELETE FROM outbox');
+      await tx.run('DELETE FROM sync_state');
+    });
+  }
+
+  /**
    * Applies a record received from the space if it is newer than the local copy. It does
    * not enter the outbox (no echo) and advances the local clock past it.
    * Returns whether anything changed.
    */
-  async apply(record: LocalRecord, defaults: LocalDefaults): Promise<boolean> {
+  async apply(
+    record: LocalRecord,
+    defaults: LocalDefaults,
+    options: { force?: boolean } = {},
+  ): Promise<boolean> {
     if (!PHASE2_TYPES.includes(record.type)) return false;
     return this.db.transaction(async (tx) => {
-      const changed = await this.applyIn(tx, record, defaults);
+      const changed = await this.applyIn(tx, record, defaults, options.force ?? false);
       // Unchanged means the local copy is at least as new: the clock is already past it.
       if (changed) await this.journal.observe(tx, record.version);
       return changed;
@@ -192,6 +274,7 @@ export class SyncStore {
     tx: SqlExecutor,
     record: LocalRecord,
     defaults: LocalDefaults,
+    force: boolean,
   ): Promise<boolean> {
     const schema = SYNC_SCHEMA[record.type];
     const id = localId(record.type, record.id);
@@ -199,7 +282,8 @@ export class SyncStore {
       `SELECT version FROM ${schema.table} WHERE id = ?`,
       [id],
     );
-    if (current[0] && compareHlc(current[0].version, record.version) >= 0) return false;
+    if (current[0] && !force && compareHlc(current[0].version, record.version) >= 0) return false;
+    if (current[0] && force && current[0].version === record.version) return false;
     if (record.type === 'person' && record.payload['deleted_at'] !== null) {
       // Nobody can delete this device's owner; doing so would also break saving the profile.
       const self = await tx.query<{ n: number }>(
@@ -227,13 +311,13 @@ export class SyncStore {
         `INSERT INTO ${schema.table} (${allColumns.join(', ')}) VALUES (${allColumns.map(() => '?').join(', ')})`,
         [id, ...values, record.version, ...Object.values(extra)],
       );
+      if (record.type === 'person') await this.dropPlaceholders(tx);
     }
-    // A pending local change to the same record lost to a newer remote one.
-    await tx.run('DELETE FROM outbox WHERE record_type = ? AND record_id = ? AND version < ?', [
-      record.type,
-      id,
-      record.version,
-    ]);
+    // A pending local change to the same record lost to a newer remote one (or was replaced).
+    await tx.run(
+      `DELETE FROM outbox WHERE record_type = ? AND record_id = ? AND ${force ? '1 = 1' : 'version < ?'}`,
+      force ? [record.type, id] : [record.type, id, record.version],
+    );
     return true;
   }
 

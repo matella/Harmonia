@@ -125,6 +125,7 @@ describe.skipIf(!live)('sync over a live local Supabase', () => {
     const spaceKey = crypto.newSpaceKey();
     const created = await a.client.rpc('create_space', {
       sealed_key: toBytea(crypto.sealSpaceKey(spaceKey, a.keys.boxPublicKey)),
+      self_person: globalThis.crypto.randomUUID(),
     });
     expect(created.error).toBeNull();
     const spaceId = (created.data as { space_id: string }[])[0].space_id;
@@ -132,15 +133,16 @@ describe.skipIf(!live)('sync over a live local Supabase', () => {
     const invite = await a.client.rpc('create_invite', {
       wrapped_key: toBytea(crypto.wrapForInvite(spaceKey, inviteSecret)),
     });
-    const claim = await b.client.rpc('claim_invite', { invite: invite.data as string });
-    expect(claim.error).toBeNull();
-    const envelope = fromBytea((claim.data as { envelope: string }[])[0].envelope);
-    const bSpaceKey = crypto.unwrapInvite(envelope, inviteSecret);
-    const approved = await a.client.rpc('approve_invite', {
+    const claim = await b.client.rpc('claim_invite', {
       invite: invite.data as string,
-      sealed_key: toBytea(crypto.sealSpaceKey(spaceKey, b.keys.boxPublicKey)),
+      person: globalThis.crypto.randomUUID(),
     });
+    expect(claim.error).toBeNull();
+    const approved = await a.client.rpc('approve_invite', { invite: invite.data as string });
     expect(approved.error).toBeNull();
+    const accepted = await b.client.rpc('accept_invite', { invite: invite.data as string });
+    const envelope = fromBytea((accepted.data as { envelope: string }[])[0].envelope);
+    const bSpaceKey = crypto.unwrapInvite(envelope, inviteSecret);
 
     const keyringOf = (key: Uint8Array) => ({
       currentEpoch: () => 1,
@@ -226,7 +228,12 @@ describe.skipIf(!live)('sync over a live local Supabase', () => {
     const secrets = new MemorySecureKeyStore();
     const device = await sessionFor(secrets).connect();
     expect(
-      (await device.client.rpc('create_space', { sealed_key: toBytea(randomBytes(80)) })).error,
+      (
+        await device.client.rpc('create_space', {
+          sealed_key: toBytea(randomBytes(80)),
+          self_person: globalThis.crypto.randomUUID(),
+        })
+      ).error,
     ).toBeNull();
     expect(
       (await device.client.rpc('revoke_device', { target: device.deviceId })).error,

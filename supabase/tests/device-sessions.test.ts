@@ -88,7 +88,9 @@ describe('device sessions (PGlite + Supabase shim)', () => {
       rebind(users.phoneAfterReinstall, partner, partnerSecret, bytes(61)),
     ).rejects.toThrow(/already registered/);
 
-    await server.as(users.partner, () => server.q(`select create_space($1)`, [bytes(9, 80)]));
+    await server.as(users.partner, () =>
+      server.q(`select create_space($1, gen_random_uuid())`, [bytes(9, 80)]),
+    );
     await server.as(users.partner, () => server.q(`select revoke_device($1)`, [partner]));
     await expect(rebind(users.partnerAgain, partner, partnerSecret, bytes(62))).rejects.toThrow(
       /not allowed/,
@@ -97,7 +99,9 @@ describe('device sessions (PGlite + Supabase shim)', () => {
 
   it('still numbers records in write order with the per-space lock', async () => {
     const [{ space_id: space }] = await server.as(users.phoneAfterReinstall, () =>
-      server.q<{ space_id: string }>(`select * from create_space($1)`, [bytes(9, 80)]),
+      server.q<{ space_id: string }>(`select * from create_space($1, gen_random_uuid())`, [
+        bytes(9, 80),
+      ]),
     );
     const insert = (id: string, ms: number) =>
       server.as(users.phoneAfterReinstall, () =>

@@ -397,7 +397,7 @@ A version from another device more than **one day** ahead of the receiving clock
 - `observeHlc` ignores such versions too, and the clock only advances on records that actually change something.
 - Tests: `domain/hlc.test.ts`, `sync/sync-engine.test.ts` (a record from a clock three days ahead waits, then applies), `supabase/tests/records-versions.test.ts`.
 
-**Found for slice 3 (invite screens):**
+**Found for slice 3 (invite screens), all resolved in slice 3a below:**
 - `approve_invite` seals the space key to the joiner, but the inviter cannot read the joiner's device row before approval (row-level security). The invite needs to expose the claimed device's public keys to the inviter, which the safety code then covers.
 - `claim_invite` returns the invite envelope before approval, so whoever holds the link gets the space key before the inviter approves; only row-level security keeps them out. Return the envelope only after approval, or drop it and rely on the sealed key.
 
@@ -406,8 +406,48 @@ A version from another device more than **one day** ahead of the receiving clock
 **Found for slice 4 (wiring):**
 - `DeviceSession` reads "no stored keys" as "new device" and starts over. Check what the secure-storage plugin returns while the phone is locked (iOS `whenUnlockedThisDeviceOnly`, during a background sync): if it is `null` rather than an error, the device would discard its own identity. Sync must not start while protected data is unavailable.
 
+### Slice 3a: invite server functions and the sharing flow (2026-10-23)
+
+No screens yet; everything below is driven by tests.
+
+**Server** (`supabase/migrations/20261023000000_invites_v2.sql`; old signatures dropped and re-granted):
+- **Same person IDs everywhere:** `create_space(sealed_key, self_person)` and `claim_invite(invite, person)` take the device's own local person ID, so server membership, records and authors share identifiers (adding one of my devices in phase 3 needs no mapping).
+- **The key reaches the joiner only after approval**, and never through a key the server supplied:
+  - `claim_invite` returns the inviter device's signing and encryption keys, not the envelope;
+  - `invite_claim` shows the claimed device's two keys to members, for the safety code;
+  - `approve_invite(invite)` admits the device; it no longer seals anything;
+  - `accept_invite` gives the approved joiner the invite envelope (the key wrapped with the secret from the code, which the server never sees);
+  - `finish_join` files the joiner's own sealed copy and clears the invite envelope.
+
+  So the server cannot obtain the key even if nobody compares the safety code; comparing it still protects against someone else using an intercepted code.
+- `decline_invite` ends an invite before approval. Every function can be retried after a lost reply: creating the space again returns it, claiming again from the same device is accepted, approving twice is a no-op, finishing twice changes nothing.
+- No names reach the server: the inviter's screen says only that a device wants to join.
+
+**Client** (`core/sync`):
+- `invite-code.ts`: the invite as text, `H1.` and 64 base64url characters (invite ID and secret), found even inside a pasted message. **QR codes come later:** no QR generator or scanner is installed yet, and emulators cannot scan. A copyable code works without a domain too.
+- `space-api.ts`: the functions above, with error codes and no data in errors.
+- `space-keys.ts`: space keys by epoch in the secure store. If a member device lost them, it reopens its own sealed copy from the server.
+- `sharing.ts` (`Sharing`): start sharing, create, show, check, approve or decline an invite; claim, check and finish a join; sync; go back to solo on this device.
+  - A self name is required before starting or claiming (otherwise the partner would see a nameless person).
+  - Crash safety: the space key and the invite or join in progress are stored before the server learns about them. Starting again after a crash finds the space the server already created, and **always takes the key sealed to this device on the server**. So sharing again after going back to solo on this device rejoins the old space with the old key, instead of pairing a new key with it. The joiner's own start date is recorded before the space's profile replaces it, so a crash at that moment cannot lose the choice.
+  - Syncing is refused while a join waits for the start-date answer, so nothing of the joiner's is uploaded before it.
+  - **Joining with data of your own** (§6.2): the joiner's profile is not queued; the first pull adopts the space's profile whatever its version (this also settles the shared `ZERO_HLC` version of upgraded profiles). If the start dates differ, the joiner chooses; keeping their own writes it with a fresh version so it wins everywhere. Dates on both sides are merged.
+  - **Names:** when the partner's own person arrives, the name typed for them on this device (a placeholder, never uploaded) is removed. Each person's own name wins.
+  - `stopSharingHere`: back to solo on this device, keeping every record. It is the way out for a device without its key, and half of leaving (phase 3).
+
+**Tests**
+- PGlite: `supabase/tests/invites.test.ts` (4) and the updated RLS, session and version tests.
+- sql.js: `sync/join.test.ts` (6): adopting the space's profile over a newer local one, keeping one's own start, merged dates, placeholders replaced on both sides, going back to solo, invite codes.
+- Live local Supabase (`supabase/tests/sharing-flow-live.test.ts`, 5, `SUPABASE_LIVE=1`): the whole flow between two phones with both safety codes equal, the start-date choice surviving a restart and a crash at the moment it is recorded, syncing refused while the join waits for it, merged data and names, a lost space key reopened from the server, declining, finishing after a crash right after the server created the space, and sharing again after going solo on one device (same space, same key).
+
+**Notes for 3b:**
+- `invite_claim` ignores expiry: an expired invite looks like "waiting" forever. Treat an invite older than 24 hours as gone, or return `expires_at`.
+- After going back to solo on one device, the server still counts that device as a member until phase 3 adds leaving, so claiming an invite returns `alreadyInSpace`. The screens need a clear message for it.
+
+**Before real users:** the recovery key (§8, phase 4) must exist, because §6.1 makes it a step that can't be skipped. `SYNC_CONFIG` stays null until then.
+
 **Next slices:**
-3. Invite, approval and safety-code screens; replace the placeholder partner with the partner's own person on join, and settle the start date if the two differ (§6.2).
+3b. Screens: Settings › Share with your partner (start, invite code with copy and share, waiting, "A device wants to join" with the safety code, approve or decline), joining (paste a code, consent, your name, safety code, waiting, choose the start date), and the member state with "Sync now". EN/FR/NL text; a development-only server setting that never reaches release builds.
 4. Wire the engine into the app (start, resume, after local changes). Android's debug-only route to the local Supabase stack (`10.0.2.2`) needs cleartext allowed in debug builds only.
 
 **Still open from phase 1:**

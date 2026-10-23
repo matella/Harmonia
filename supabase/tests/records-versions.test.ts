@@ -32,7 +32,9 @@ describe('record versions and the server clock', () => {
     server = await openServer();
     await server.register(user, 1);
     [{ space_id: space }] = await server.as(user, () =>
-      server.q<{ space_id: string }>(`select * from create_space($1)`, [bytes(9, 80)]),
+      server.q<{ space_id: string }>(`select * from create_space($1, gen_random_uuid())`, [
+        bytes(9, 80),
+      ]),
     );
   });
 
