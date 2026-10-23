@@ -1,5 +1,6 @@
 import type { SecureKeyStore } from '../platform/secure-key-store';
 import { fromBase64, toBase64 } from './encoding';
+import { spaceKeyName } from './secret-names';
 import type { SpaceKeyring } from './sync-engine';
 
 /**
@@ -13,7 +14,7 @@ export class MissingSpaceKeyError extends Error {
   }
 }
 
-const name = (spaceId: string, epoch: number) => `space.${spaceId}.${epoch}`;
+const name = spaceKeyName;
 
 /**
  * What a device signs when it files a space key sealed to itself: the envelope's place

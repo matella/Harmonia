@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core';
 
 import { createSecureKeyStore } from '../platform/secure-key-store';
 import { SYNC_CONFIG, type SyncServerConfig } from '../platform/sync-config';
+import { allSharingSecretNames, spaceKeyName } from '../sync/secret-names';
 import { DEV_SYNC_CONFIG } from '../platform/sync-dev-config';
 import type {
   CurrentInvite,
@@ -59,6 +60,8 @@ export class SharingService {
   private readonly notice = inject(NoticeService);
   private readonly t = inject(I18nService).translator;
   private loading: Promise<Sharing> | null = null;
+  /** One store for every sharing secret (in the browser preview it lives in memory only). */
+  private readonly secrets = createSecureKeyStore();
   /** Syncs run one after another, never side by side. */
   private readonly queue = new SerialQueue();
   private autoTimer: ReturnType<typeof setTimeout> | null = null;
@@ -206,6 +209,34 @@ export class SharingService {
     });
   }
 
+  /**
+   * Before "Delete all data": takes this device out of the shared space (§17). Returns
+   * false if sharing is on but the server couldn't be reached; the wipe goes ahead anyway.
+   * A solo device is not touched and nothing is loaded.
+   */
+  async removeThisDevice(): Promise<boolean> {
+    if (!this.available) return true;
+    if (!(await this.db.repos.sync.state())) return true;
+    try {
+      await this.queue.run(async () => (await this.sharing()).removeThisDevice());
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Forgets every sharing secret on this device (device keys, session, space keys). */
+  async forgetSecrets(): Promise<void> {
+    const state = await this.db.repos.sync.state().catch(() => null);
+    const names = allSharingSecretNames();
+    if (state) {
+      for (let epoch = 1; epoch <= state.epoch; epoch++)
+        names.push(spaceKeyName(state.spaceId, epoch));
+    }
+    for (const name of names) await this.secrets.remove(name).catch(() => undefined);
+    this.loading = null;
+  }
+
   leave(): Promise<void> {
     return this.queue.run(async () => {
       await (await this.sharing()).leave();
@@ -239,7 +270,7 @@ export class SharingService {
           import('@supabase/supabase-js'),
         ]);
       const crypto = await loadSyncCrypto();
-      const secrets = createSecureKeyStore();
+      const secrets = this.secrets;
       const platform = Capacitor.getPlatform() === 'ios' ? 'ios' : 'android';
       const session = new DeviceSession(secrets, crypto, platform, (storage) =>
         createClient(server.url, server.publishableKey, {

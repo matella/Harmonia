@@ -133,7 +133,11 @@ export class PrivacyDataPage {
       const report = await this.deletion.deleteEverything();
       await this.nav.navigateRoot('/welcome', { animated: false });
       await this.notice.show(
-        report.remindersCancelled && report.widgetsCleared ? this.t.t('privacy.deleteDone') : this.t.t('privacy.deletePartial'),
+        !report.sharingRemoved
+          ? this.t.t('privacy.deleteSharingOffline')
+          : report.remindersCancelled && report.widgetsCleared
+            ? this.t.t('privacy.deleteDone')
+            : this.t.t('privacy.deletePartial'),
       );
     } catch {
       await this.notice.show(this.t.t('privacy.deleteFailed'), 'warning');

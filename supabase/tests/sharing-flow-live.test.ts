@@ -565,6 +565,55 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
     expect((await alexPhone.sharing.myDevices()).map((d) => d.id)).toContain(laptop.deviceId);
   });
 
+  it('takes this device out of the space before "Delete all data"; the others keep sharing', async () => {
+    const alexPhone = await phone();
+    const alexTablet = await phone();
+    const sam = await phone();
+    for (const p of [alexPhone, alexTablet, sam]) await p.profiles.save(profile({}));
+    await alexPhone.sharing.startSharing('Alex');
+    for (const [joiner, name, forMe] of [
+      [alexTablet, 'Alex', true],
+      [sam, 'Sam', false],
+    ] as const) {
+      const code = await alexPhone.sharing.createInvite({ forMe });
+      await joiner.sharing.claim(code, name);
+      await alexPhone.sharing.approveInvite();
+      let progress = await joiner.sharing.checkJoin();
+      if (progress.state === 'chooseStart') progress = await joiner.sharing.chooseStart('space');
+      expect(progress.state).toBe('joined');
+      await alexPhone.sharing.sync();
+    }
+    await alexTablet.sharing.sync();
+    const tablet = await alexTablet.session.connect();
+
+    await alexTablet.sharing.removeThisDevice();
+    expect(await alexTablet.store.state()).toBeNull();
+    expect(psql(`select revoked_at is not null from devices where id = '${tablet.deviceId}'`)).toBe(
+      't',
+    );
+
+    // The others take the new key the tablet signed on its way out, then mark it removed.
+    for (const p of [alexPhone, sam]) {
+      await p.sharing.sync();
+      expect((await p.store.state())!.epoch).toBe(2);
+      expect(
+        (await p.store.devices()).find((d) => d.id === tablet.deviceId)?.revokedAt,
+      ).not.toBeNull();
+    }
+    await sam.milestones.create(date('Still sharing'));
+    await sam.sharing.sync();
+    await alexPhone.sharing.sync();
+    expect((await alexPhone.milestones.list()).map((m) => m.title)).toContain('Still sharing');
+
+    // Alone in a space, the space itself is deleted.
+    const solo = await phone();
+    await solo.profiles.save(profile({}));
+    await solo.sharing.startSharing('Kim');
+    const soloSpace = (await solo.store.state())!.spaceId;
+    await solo.sharing.removeThisDevice();
+    expect(psql(`select count(*) from spaces where id = '${soloSpace}'`)).toBe('0');
+  });
+
   it('cleans up', async () => {
     for (const fn of dissolve) await fn();
   });

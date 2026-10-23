@@ -605,7 +605,7 @@ The design is in §7 (revised the same day: each device writes only its own reco
 - Adding one of my devices (§7.6): done in slice 3.
 - Removing a device with rotation (§7.4); only my own devices on screen (§7.7, decided).
 
-**Found:** *Delete all data* does not touch sharing. The device's sharing keys stay in secure storage, and the server still counts the device as a member of its space. It should end sharing on this device first (or ask to leave). Left for a follow-up.
+**Found:** *Delete all data* did not touch sharing (fixed below, "Delete all data while sharing").
 
 ### Phase 3, slice 3: adding one of my devices (2026-10-23)
 
@@ -689,6 +689,17 @@ Builds §7.3–7.5. In the shared state, *Your devices* lists this device and my
   - once the rotation goes through, the date arrives under the new epoch.
 
 **Phase 3's done-when** ("the removed device can't decrypt new records; both keep data after dissolving") is met in live tests against the local stack, not yet on devices.
+
+### Delete all data while sharing (2026-10-23)
+
+**Decided by the product owner:** *Delete all data* takes **this device** out of the space, then wipes it. The partner and my other devices keep sharing.
+- This device seals a new key to every other device and signs it, in the same all-or-nothing `rotate` call as any removal, with itself as the target. Unlike removing another device, it does **not** mark itself removed first: the others must still accept its signature on the new key. They mark it removed on their next sync, from the server's report (`removedDevices`). Trusting the server there can only remove trust, never add it.
+- **If it was the only device in the space, the space is deleted.**
+- Then every sharing secret is forgotten: device keys, the session, pending steps and every space key (`secret-names.ts`). The usual wipe follows.
+- **Offline**, the wipe still goes ahead with the keys deleted, so the device can read nothing more, and the message says it couldn't be taken out of the space.
+- Tests:
+  - live: the tablet takes itself out; Alex's phone and Sam move to the new key, mark it removed and keep syncing; a device alone in its space deletes the space;
+  - spec: every sharing secret is forgotten.
 
 **Phase 2 status:** the invite and core sync are complete for the profile, persons and dates. They are verified between the Android emulator and the browser preview against a local server. Next is phase 3 (devices and leaving), then phase 4 (recovery key), which real users need before `SYNC_CONFIG` can be set.
 

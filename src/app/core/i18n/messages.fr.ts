@@ -575,6 +575,7 @@ export const FR: EnCatalog = {
   'privacy.deleteConfirm': 'Tout supprimer',
   'privacy.deleteDone': 'Toutes les données ont été supprimées.',
   'privacy.deletePartial': 'Vos données ont été supprimées. Certains rappels ou widgets peuvent mettre un instant à disparaître.',
+  'privacy.deleteSharingOffline': 'Vos données ont été supprimées de cet appareil. Il n’a pas pu être retiré de l’espace partagé, car le serveur de partage était injoignable\u00a0; ses clés de partage ont été supprimées, il ne peut donc plus rien lire.',
   'privacy.deleteFailed': 'Vos données n’ont pas pu être supprimées. Réessayez.',
 
   // Anonymous usage (opt-in; shown only when a destination is configured)

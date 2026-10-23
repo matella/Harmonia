@@ -569,6 +569,7 @@ export const EN = {
   'privacy.deleteConfirm': 'Delete everything',
   'privacy.deleteDone': 'All data deleted.',
   'privacy.deletePartial': 'Your data was deleted. Some reminders or widgets may take a moment to clear.',
+  'privacy.deleteSharingOffline': 'Your data was deleted from this device. It couldn’t be taken out of the shared space because the sharing server couldn’t be reached; its sharing keys were deleted, so it can’t read anything more.',
   'privacy.deleteFailed': 'Your data couldn’t be deleted. Try again.',
 
   // Anonymous usage (opt-in; shown only when a destination is configured)

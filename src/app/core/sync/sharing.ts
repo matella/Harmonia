@@ -6,6 +6,7 @@ import type { SecureKeyStore } from '../platform/secure-key-store';
 import type { ConnectedDevice, DeviceSession } from './device-session';
 import { fromBase64, toBase64 } from './encoding';
 import { decodeInviteBundle, encodeInviteBundle } from './invite-bundle';
+import { SHARING_SECRETS } from './secret-names';
 import { formatInviteCode, parseInviteCode } from './invite-code';
 import { SpaceApi, SpaceApiError, type Membership } from './space-api';
 import { envelopeMessage, MissingSpaceKeyError, SpaceKeys } from './space-keys';
@@ -91,12 +92,7 @@ export interface SharingDeps {
   defaults: () => LocalDefaults;
 }
 
-const NAMES = {
-  pendingKey: 'sharing.pendingKey',
-  invite: 'sharing.invite',
-  join: 'sharing.join',
-  rotation: 'sharing.rotation',
-} as const;
+const NAMES = SHARING_SECRETS;
 
 /** A removal in progress: the new key is stored here before the server sees it. */
 interface PendingRotation {
@@ -429,6 +425,7 @@ export class Sharing {
     // dissolve, pulls just return nothing, so the end must be asked for explicitly.
     const membership = await this.checkStillMember(api);
     await this.catchUp(api, device, membership);
+    await this.markRemovedOnServer(api);
     await this.loadKeys(api);
     await this.writeOwnDevice(device, membership?.personId ?? null);
     if (await this.read<PendingRotation>(NAMES.rotation)) {
@@ -520,6 +517,74 @@ export class Sharing {
     if (!(await this.resumeRemoval(api, device))) throw new SharingError('removalPending');
     await this.loadKeys(api);
     await this.engine(device.client).sync();
+  }
+
+  /**
+   * "Delete all data" while sharing (decided 2026-10-23): takes this device out of the
+   * space before it is wiped. The space gets a new key, sealed and signed by this device to
+   * every other one, in the same all-or-nothing call as any removal; the others then keep
+   * sharing. Alone in the space, the space is simply deleted. Throws when the server can't
+   * be reached; the caller wipes the device anyway.
+   */
+  async removeThisDevice(): Promise<void> {
+    const state = await this.deps.store.state();
+    if (!state) return;
+    const device = await this.deps.session.connect();
+    const api = new SpaceApi(device.client);
+    try {
+      await this.catchUp(api, device, await this.checkStillMember(api));
+    } catch (error) {
+      if (error instanceof SharingEndedError) return; // already out of the space
+      throw error;
+    }
+    for (let attempt = 0; ; attempt++) {
+      const current = (await this.deps.store.state())!;
+      const removedOnServer = await api.removedDevices(current.spaceId);
+      const others = (await this.deps.store.devices()).filter(
+        (d) => !d.revokedAt && d.id !== device.deviceId && !removedOnServer.has(d.id),
+      );
+      if (others.length === 0) {
+        await api.dissolveSpace();
+        break;
+      }
+      // Not marked removed here first: the others must still accept this device's
+      // signature on the new key. They mark it removed once the server reports it.
+      const key = this.deps.crypto.newSpaceKey();
+      const next = current.epoch + 1;
+      const envelopes = others.map((d) => {
+        const sealed = this.deps.crypto.sealSpaceKey(key, fromBase64(d.boxPublicKey));
+        const signature = this.deps.crypto.sign(
+          envelopeMessage(current.spaceId, next, d.id, sealed),
+          device.keys,
+        );
+        return { deviceId: d.id, sealed, signature };
+      });
+      try {
+        await api.rotate(device.deviceId, current.epoch, envelopes);
+        break;
+      } catch (error) {
+        const retry =
+          error instanceof SpaceApiError &&
+          (error.code === 'epochChanged' || error.code === 'staleRecipients');
+        if (!retry || attempt > 0) throw error;
+        await this.catchUp(api, device, await this.checkStillMember(api));
+      }
+    }
+    await this.stopSharingHere();
+  }
+
+  /**
+   * Devices the server reports as removed are marked removed here too. Trusting the server
+   * here can only remove trust, never add it (a device that removed itself couldn't write
+   * that record any more).
+   */
+  private async markRemovedOnServer(api: SpaceApi): Promise<void> {
+    const state = await this.deps.store.state();
+    if (!state) return;
+    const removed = await api.removedDevices(state.spaceId).catch(() => new Set<string>());
+    for (const d of await this.deps.store.devices()) {
+      if (!d.revokedAt && removed.has(d.id)) await this.deps.store.markDeviceRemoved(d.id);
+    }
   }
 
   /**

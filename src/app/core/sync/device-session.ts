@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { SecureKeyStore } from '../platform/secure-key-store';
 import { fromBase64, randomBytes, sha256, toBase64, toBytea } from './encoding';
+import { DEVICE_SECRETS } from './secret-names';
 import type { DeviceKeys, SyncCrypto } from './sync-crypto-port';
 
 /**
@@ -59,13 +60,7 @@ export class DeviceSessionError extends Error {
   }
 }
 
-const NAMES = {
-  keys: 'device.keys',
-  id: 'device.id',
-  secret: 'device.secret',
-  nextSecret: 'device.secret.next',
-  authPrefix: 'auth.',
-} as const;
+const NAMES = DEVICE_SECRETS;
 
 interface StoredKeys {
   signPublicKey: string;

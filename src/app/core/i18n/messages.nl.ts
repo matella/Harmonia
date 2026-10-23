@@ -573,6 +573,7 @@ export const NL: EnCatalog = {
   'privacy.deleteConfirm': 'Alles verwijderen',
   'privacy.deleteDone': 'Alle gegevens zijn verwijderd.',
   'privacy.deletePartial': 'Je gegevens zijn verwijderd. Sommige meldingen of widgets hebben misschien even nodig om te verdwijnen.',
+  'privacy.deleteSharingOffline': 'Je gegevens zijn van dit toestel verwijderd. Het kon niet uit de gedeelde ruimte worden gehaald omdat de deelserver niet bereikbaar was; de deelsleutels zijn verwijderd, dus het kan niets meer lezen.',
   'privacy.deleteFailed': 'Je gegevens konden niet worden verwijderd. Probeer het opnieuw.',
 
   // Anonymous usage (opt-in; shown only when a destination is configured)
