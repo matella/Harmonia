@@ -69,7 +69,7 @@ describe('rotation (PGlite + Supabase shim)', () => {
         device['tablet'],
         JSON.stringify([envelope(device['phone'], 1), envelope(device['eve'], 2)]), // Eve is not in the space
       ]),
-    ).rejects.toThrow(/unknown device/);
+    ).rejects.toThrow(/unknown recipient/);
     expect(await epoch()).toBe(1);
     expect(
       (await run<{ revoked: boolean }>(users.tablet, `select revoked from membership()`))[0]
@@ -96,6 +96,11 @@ describe('rotation (PGlite + Supabase shim)', () => {
       [space],
     );
     expect(stored).toEqual([{ device_id: device['phone'], signer_device_id: device['phone'] }]);
+
+    // Removing it again: the server says the target is no longer in the space.
+    await expect(
+      run(users.phone, `select rotate($1, 2, '[]'::jsonb)`, [device['tablet']]),
+    ).rejects.toThrow(/target not in space/);
 
     // Someone who saw epoch 1 can't rotate again on top of it.
     await expect(

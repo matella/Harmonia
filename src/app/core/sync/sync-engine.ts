@@ -103,7 +103,14 @@ export class SyncEngine {
    * `pullOnly` with `adoptProfile` is the joiner's first step (§6.2): take the space's
    * profile whatever its version, before anything of this device is uploaded.
    */
-  async sync(options: { pullOnly?: boolean; adoptProfile?: boolean } = {}): Promise<SyncReport> {
+  async sync(
+    options: {
+      pullOnly?: boolean;
+      adoptProfile?: boolean;
+      /** Push only these record types now (the rest stays queued). */
+      pushTypes?: readonly SyncedRecordType[];
+    } = {},
+  ): Promise<SyncReport> {
     const state = await this.store.state();
     if (!state) throw new Error('Sharing is not set up on this device.');
     if (state.capability < this.capability) await this.store.restartPull(this.capability);
@@ -121,7 +128,7 @@ export class SyncEngine {
 
     await this.pull(state.spaceId, report, changed, options.adoptProfile ?? false);
     if (!options.pullOnly) {
-      await this.push(state.spaceId, report);
+      await this.push(state.spaceId, report, options.pushTypes);
       await this.pull(state.spaceId, report, changed, false);
     }
 
@@ -183,12 +190,16 @@ export class SyncEngine {
     }
   }
 
-  private async push(spaceId: string, report: SyncReport): Promise<void> {
+  private async push(
+    spaceId: string,
+    report: SyncReport,
+    types?: readonly SyncedRecordType[],
+  ): Promise<void> {
     const epoch = this.keyring.currentEpoch();
     const key = this.keyring.key(epoch);
     if (!key) throw new Error('No space key for the current epoch.');
 
-    const entries = await this.store.outbox();
+    const entries = (await this.store.outbox()).filter((e) => !types || types.includes(e.type));
     for (let i = 0; i < entries.length; i += this.pageSize) {
       const batch: { record: LocalRecord; wire: WireRecord }[] = [];
       for (const entry of entries.slice(i, i + this.pageSize)) {

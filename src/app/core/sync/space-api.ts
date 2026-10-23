@@ -14,6 +14,8 @@ export type SpaceErrorCode =
   | 'personExists'
   | 'notAllowed'
   | 'epochChanged'
+  | 'targetGone'
+  | 'staleRecipients'
   | 'network'
   | 'server';
 
@@ -91,6 +93,8 @@ const MESSAGES: [RegExp, SpaceErrorCode][] = [
   [/already in a space|already approved/, 'alreadyInSpace'],
   [/person exists/, 'personExists'],
   [/epoch changed/, 'epochChanged'],
+  [/target not in space/, 'targetGone'],
+  [/unknown recipient/, 'staleRecipients'],
   [/not allowed|not a member|unknown device/, 'notAllowed'],
 ];
 
@@ -237,6 +241,20 @@ export class SpaceApi {
       expected_epoch: expectedEpoch,
       envelopes: envelopesJson(envelopes),
     });
+  }
+
+  /**
+   * Devices of the space the server reports as removed. Used only to seal to fewer
+   * devices (never more), so trusting the server here can't leak a key.
+   */
+  async removedDevices(spaceId: string): Promise<Set<string>> {
+    const { data, error } = await this.client
+      .from('devices')
+      .select('id')
+      .eq('space_id', spaceId)
+      .not('revoked_at', 'is', null);
+    if (error) throw new SpaceApiError(error.code ? 'server' : 'network', 'removedDevices');
+    return new Set(((data ?? []) as { id: string }[]).map((d) => d.id));
   }
 
   /** Devices of the space (not removed) with no envelope for the current epoch. */

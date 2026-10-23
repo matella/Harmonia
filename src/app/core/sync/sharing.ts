@@ -432,8 +432,14 @@ export class Sharing {
     await this.loadKeys(api);
     await this.writeOwnDevice(device, membership?.personId ?? null);
     if (await this.read<PendingRotation>(NAMES.rotation)) {
-      await this.resumeRemoval(api, device);
+      const done = await this.resumeRemoval(api, device);
       await this.loadKeys(api);
+      if (!done) {
+        // The removed device still holds the current key: download only, upload nothing
+        // until the new key is in place.
+        await this.engine(device.client).sync({ pullOnly: true });
+        throw new SharingError('removalPending');
+      }
     }
     const report = await this.engine(device.client).sync();
     // After the pull, so the device list it seals to is as fresh as this device can know.
@@ -494,6 +500,11 @@ export class Sharing {
     if (targetId === device.deviceId || !known.some((d) => d.id === targetId)) {
       throw new SharingError('unknownDevice');
     }
+    // One removal at a time: finish an earlier one first, never overwrite it.
+    const earlier = await this.read<PendingRotation>(NAMES.rotation);
+    if (earlier && earlier.target !== targetId && !(await this.resumeRemoval(api, device))) {
+      throw new SharingError('removalPending');
+    }
     // Recorded first: from here on the removal is resumed on every sync until the server
     // has rotated, so a device marked removed is never left holding the current key.
     await this.write<PendingRotation>(NAMES.rotation, {
@@ -503,8 +514,9 @@ export class Sharing {
     });
     // Tell every device first, under the key they already hold, so none of them trusts a
     // new key signed by the removed device before it learns of the removal (§7.4).
+    // Only the device list goes up now; other changes wait for the new key.
     await this.deps.store.markDeviceRemoved(targetId);
-    await this.engine(device.client).sync();
+    await this.engine(device.client).sync({ pushTypes: ['device'] });
     if (!(await this.resumeRemoval(api, device))) throw new SharingError('removalPending');
     await this.loadKeys(api);
     await this.engine(device.client).sync();
@@ -526,8 +538,9 @@ export class Sharing {
     }
     const key = fromBase64(pending.key);
     const next = state.epoch + 1;
+    const removedOnServer = await api.removedDevices(state.spaceId).catch(() => new Set<string>());
     const recipients = (await this.deps.store.devices())
-      .filter((d) => !d.revokedAt && d.id !== pending!.target)
+      .filter((d) => !d.revokedAt && d.id !== pending!.target && !removedOnServer.has(d.id))
       .map((d) => ({ id: d.id, box: fromBase64(d.boxPublicKey) }));
     if (!recipients.some((r) => r.id === device.deviceId)) {
       recipients.push({ id: device.deviceId, box: device.keys.boxPublicKey });
@@ -543,12 +556,14 @@ export class Sharing {
     try {
       await api.rotate(pending.target, state.epoch, envelopes);
     } catch (error) {
-      if (error instanceof SpaceApiError && error.code === 'notAllowed') {
-        // The server no longer has that device in the space: removed already.
+      if (error instanceof SpaceApiError && error.code === 'targetGone') {
+        // The server says the device is no longer in the space: removed already.
         await this.deps.secrets.remove(NAMES.rotation);
         return true;
       }
-      return false; // offline, or someone rotated first: tried again on the next sync
+      // Offline, someone rotated first, or a recipient was removed meanwhile: tried again
+      // on the next sync, with a fresh list.
+      return false;
     }
     await this.finishRotation(state.spaceId, next, key, pending.target);
     return true;

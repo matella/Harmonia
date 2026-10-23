@@ -508,14 +508,23 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
   it('resumes a removal whose key change failed, and shows it as pending meanwhile', async () => {
     const alexPhone = await phone();
     const alexTablet = await phone();
-    for (const p of [alexPhone, alexTablet]) await p.profiles.save(profile({}));
+    const alexLaptop = await phone();
+    for (const p of [alexPhone, alexTablet, alexLaptop]) await p.profiles.save(profile({}));
     await alexPhone.sharing.startSharing('Alex');
-    const code = await alexPhone.sharing.createInvite({ forMe: true });
-    await alexTablet.sharing.claim(code, 'Alex');
-    await alexPhone.sharing.approveInvite();
-    expect((await alexTablet.sharing.checkJoin()).state).toBe('joined');
-    await alexPhone.sharing.sync();
+    for (const extra of [alexTablet, alexLaptop]) {
+      const code = await alexPhone.sharing.createInvite({ forMe: true });
+      await extra.sharing.claim(code, 'Alex');
+      await alexPhone.sharing.approveInvite();
+      expect((await extra.sharing.checkJoin()).state).toBe('joined');
+      await alexPhone.sharing.sync();
+    }
     const tablet = await alexTablet.session.connect();
+    const laptop = await alexLaptop.session.connect();
+    const space = (await alexPhone.store.state())!.spaceId;
+    const milestonesOnServer = () =>
+      psql(
+        `select count(*) from records where space_id = '${space}' and record_type = 'milestone'`,
+      );
 
     // The server can't rotate for a moment (as if offline right after the removal record).
     psql('alter function public.rotate(uuid, integer, jsonb) rename to rotate_paused;');
@@ -523,11 +532,22 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
       await expect(alexPhone.sharing.removeDevice(tablet.deviceId)).rejects.toMatchObject({
         code: 'removalPending',
       });
-      expect(await alexPhone.sharing.myDevices()).toEqual([
-        expect.objectContaining({ thisDevice: true, pendingRemoval: false }),
-        expect.objectContaining({ id: tablet.deviceId, pendingRemoval: true }),
-      ]);
+      expect(await alexPhone.sharing.myDevices()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ thisDevice: true, pendingRemoval: false }),
+          expect.objectContaining({ id: tablet.deviceId, pendingRemoval: true }),
+        ]),
+      );
       expect((await alexPhone.store.state())!.epoch).toBe(1);
+
+      // Meanwhile nothing new goes up under the key the tablet still holds.
+      await alexPhone.milestones.create(date('Written while removing'));
+      await expect(alexPhone.sharing.sync()).rejects.toMatchObject({ code: 'removalPending' });
+      expect(milestonesOnServer()).toBe('0');
+      // And a second removal can't overwrite the first.
+      await expect(alexPhone.sharing.removeDevice(laptop.deviceId)).rejects.toMatchObject({
+        code: 'removalPending',
+      });
     } finally {
       psql('alter function public.rotate_paused(uuid, integer, jsonb) rename to rotate;');
     }
@@ -538,6 +558,11 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
     expect((await alexPhone.sharing.myDevices()).map((d) => d.id)).not.toContain(tablet.deviceId);
     expect(await alexPhone.secrets.get('sharing.rotation')).toBeNull();
     await expect(alexTablet.sharing.sync()).rejects.toMatchObject({ reason: 'removed' });
+    // The date written meanwhile went up under the new key only.
+    expect(
+      psql(`select epoch from records where space_id = '${space}' and record_type = 'milestone'`),
+    ).toBe('2');
+    expect((await alexPhone.sharing.myDevices()).map((d) => d.id)).toContain(laptop.deviceId);
   });
 
   it('cleans up', async () => {
