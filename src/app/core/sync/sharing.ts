@@ -904,7 +904,22 @@ export class Sharing {
   async recoveryStatus(): Promise<RecoveryStatus> {
     if ((await this.read<PendingRotation>(NAMES.rotation))?.recovery) return 'saving';
     const self = (await this.deps.profiles.persons()).find((p) => p.isSelf)?.id;
-    return self && (await this.deps.store.recoveryKeys()).has(self) ? 'set' : 'missing';
+    const known = self ? (await this.deps.store.recoveryKeys()).get(self) : undefined;
+    if (!self || !known) return 'missing';
+    // The record says a key is set; the server says which one it seals to. If they differ
+    // (a record from elsewhere, or two of my devices replacing at once), new epochs aren't
+    // covered and only a new key fixes it. Offline, the record is trusted.
+    try {
+      const device = await this.deps.session.connect();
+      const missing = await new SpaceApi(device.client).personsMissingRecoveryEnvelope();
+      const mine = missing.find((m) => m.personId === self);
+      if (mine && !sameBytes(await sha256(fromBase64(known)), mine.publicKeyHash)) {
+        return 'missing';
+      }
+    } catch {
+      // Checked again next time.
+    }
+    return 'set';
   }
 
   /**

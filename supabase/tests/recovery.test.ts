@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { bytes, openServer, sha256 } from './pglite-server';
+import { bytes, openServer, sha256, version } from './pglite-server';
 
 /** The recovery key on the server (§8): hashed lookups, envelopes, recover(), replace. */
 const users = {
@@ -207,5 +207,32 @@ describe('recovery (PGlite + Supabase shim)', () => {
         .map((m) => m.person_id)
         .sort(),
     ).toEqual([people.alex, people.sam].sort());
+  });
+  it('keeps a recovery record only from a device of that person', async () => {
+    const epoch = await epochOf();
+    const write = (user: string, person: string, ms: number) =>
+      run(
+        user,
+        `insert into records (space_id, record_type, record_id, version, epoch, nonce, ciphertext)
+         values ($1, 'recovery', $2, $3, $4, $5, $6)
+         on conflict (space_id, record_type, record_id) do update
+           set version = excluded.version, ciphertext = excluded.ciphertext`,
+        [space, person, version(ms), epoch, bytes(1, 24), bytes(2, 64)],
+      );
+    const stored = () =>
+      server.q<{ record_id: string; version: string }>(
+        `select record_id, version from records where record_type = 'recovery' order by record_id`,
+      );
+    await write(users.alex, people.alex, 1_000);
+    await write(users.sam, people.sam, 1_000);
+    // Sam's device writing Alex's record, new or over Alex's: skipped.
+    await write(users.sam, people.alex, 2_000);
+    expect(await stored()).toEqual([
+      { record_id: people.alex, version: version(1_000) },
+      { record_id: people.sam, version: version(1_000) },
+    ]);
+    // Another of Alex's devices may.
+    await write(users.laterAlex, people.alex, 3_000);
+    expect((await stored())[0].version).toBe(version(3_000));
   });
 });

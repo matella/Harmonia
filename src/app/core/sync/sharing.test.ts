@@ -8,7 +8,7 @@ import { RelationshipRepository } from '../persistence/relationship.repository';
 import { SqlJsDriver } from '../persistence/sqljs-driver';
 import { MemorySecureKeyStore } from '../platform/secure-key-store';
 import { DeviceKeysUnavailableError, DeviceSession } from './device-session';
-import { toBase64 } from './encoding';
+import { sha256, toBase64, toBytea } from './encoding';
 import { Sharing, SharingEndedError } from './sharing';
 import { loadSyncCrypto, type SyncCrypto } from './sync-crypto-port';
 import { SyncStore } from './sync-store';
@@ -203,6 +203,33 @@ describe('the recovery key, before the server', () => {
       code: 'invalidRecoveryKey',
     });
     expect(await local.sharing.status()).toBe('off');
+  });
+
+  it('asks for a new key when the server seals to another one than this device knows', async () => {
+    const mine = new Uint8Array(32).fill(7);
+    const other = new Uint8Array(32).fill(8);
+    const cases: [Uint8Array | null | 'offline', string][] = [
+      [null, 'set'],
+      [mine, 'set'], // only this epoch's envelope is missing: repair handles it
+      [other, 'missing'],
+      ['offline', 'set'],
+    ];
+    for (const [serverKey, expected] of cases) {
+      const answers: Record<string, { data: unknown; error: unknown }> = {};
+      const { sharing, store, profiles } = await member(answers);
+      const self = (await profiles.persons()).find((p) => p.isSelf)!.id;
+      await store.writeRecovery(self, toBase64(mine));
+      answers['persons_missing_recovery_envelope'] =
+        serverKey === 'offline'
+          ? OFFLINE
+          : {
+              data: serverKey
+                ? [{ person_id: self, public_key_hash: toBytea(await sha256(serverKey)) }]
+                : [],
+              error: null,
+            };
+      expect(await sharing.recoveryStatus()).toBe(expected);
+    }
   });
 
   it('treats an interrupted recovery as not started, and syncs nothing meanwhile', async () => {
