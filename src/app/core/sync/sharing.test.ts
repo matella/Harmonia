@@ -7,7 +7,7 @@ import { migrate } from '../persistence/migrations';
 import { RelationshipRepository } from '../persistence/relationship.repository';
 import { SqlJsDriver } from '../persistence/sqljs-driver';
 import { MemorySecureKeyStore } from '../platform/secure-key-store';
-import type { DeviceSession } from './device-session';
+import { DeviceKeysUnavailableError, DeviceSession } from './device-session';
 import { toBase64 } from './encoding';
 import { Sharing } from './sharing';
 import type { SyncCrypto } from './sync-crypto-port';
@@ -56,5 +56,17 @@ describe('sharing without a server', () => {
     expect(await sharing.status()).toBe('off');
     await secrets.set('sharing.join', JSON.stringify({ inviteId: 'x', secret: 'y' }));
     expect(await sharing.status()).toBe('joining');
+  });
+
+  it('never replaces the device identity when its keys cannot be read (a locked iPhone)', async () => {
+    const secrets = new MemorySecureKeyStore();
+    await secrets.set('device.id', 'registered-device');
+    await secrets.set('device.secret', 'c2VjcmV0');
+    const session = new DeviceSession(secrets, {} as SyncCrypto, 'ios', () => {
+      throw new Error('must not reach the server');
+    });
+    await expect(session.connect()).rejects.toBeInstanceOf(DeviceKeysUnavailableError);
+    expect(await secrets.get('device.id')).toBe('registered-device');
+    expect(await secrets.get('device.secret')).toBe('c2VjcmV0');
   });
 });

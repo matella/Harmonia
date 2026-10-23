@@ -6,19 +6,22 @@ import { SYNC_CONFIG, type SyncServerConfig } from '../platform/sync-config';
 import { DEV_SYNC_CONFIG } from '../platform/sync-dev-config';
 import type { InviteProgress, JoinProgress, Sharing, SharingStatus } from '../sync/sharing';
 import type { SyncReport } from '../sync/sync-engine';
+import { SerialQueue } from '../persistence/sql-driver';
 import { DatabaseService } from './database.service';
 import { SyncService } from './sync.service';
 import { CLOCK } from './tokens';
 
 /**
- * The sharing server. Null means sharing does not exist in the app. Native builds use
- * `SYNC_CONFIG`; the browser preview uses the local development stack, and only in
- * development builds served from this machine.
+ * The sharing server. Null means sharing does not exist in the app. Release builds use
+ * `SYNC_CONFIG`. Development builds fall back to the local stack: on a device through
+ * `adb reverse`, in the browser preview only when served from this machine.
  */
 export const SYNC_SERVER = new InjectionToken<SyncServerConfig | null>('SYNC_SERVER', {
   providedIn: 'root',
   factory: () => {
-    if (Capacitor.isNativePlatform()) return SYNC_CONFIG;
+    // Development builds on a device reach the local stack through `adb reverse`
+    // (docs/PARTNER_SYNC.md §17); in release builds DEV_SYNC_CONFIG is null.
+    if (Capacitor.isNativePlatform()) return SYNC_CONFIG ?? DEV_SYNC_CONFIG;
     const host = globalThis.location?.hostname;
     const local = host === 'localhost' || host === '127.0.0.1' || host?.endsWith('.localhost');
     return local ? DEV_SYNC_CONFIG : null;
@@ -26,6 +29,9 @@ export const SYNC_SERVER = new InjectionToken<SyncServerConfig | null>('SYNC_SER
 });
 
 export type SharingView = SharingStatus | 'unknown';
+
+/** How long after a local edit its upload starts, so quick successive edits share one sync. */
+const AFTER_CHANGE_DELAY_MS = 2000;
 
 /**
  * Angular side of partner sharing (docs/PARTNER_SYNC.md §6, §17). The crypto library
@@ -40,9 +46,42 @@ export class SharingService {
   private readonly sync = inject(SyncService);
   private readonly clock = inject(CLOCK);
   private loading: Promise<Sharing> | null = null;
+  /** Syncs run one after another, never side by side. */
+  private readonly queue = new SerialQueue();
+  private autoTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly available = this.server !== null;
   readonly status = signal<SharingView>('unknown');
+
+  constructor() {
+    // Local edits are uploaded shortly after they are saved; quick successive edits
+    // share one sync.
+    this.sync.onLocalChange(() => this.requestSync(AFTER_CHANGE_DELAY_MS));
+  }
+
+  /**
+   * Syncs in the background soon (on start, on resume, after a local change). A solo
+   * device stops after one local database check: nothing is loaded and nothing is sent.
+   * Failures stay silent (offline, a join still waiting, keys unavailable); the next
+   * trigger tries again.
+   */
+  requestSync(delayMs = 0): void {
+    if (!this.available) return;
+    if (this.autoTimer) clearTimeout(this.autoTimer);
+    this.autoTimer = setTimeout(() => {
+      this.autoTimer = null;
+      void this.autoSync();
+    }, delayMs);
+  }
+
+  private async autoSync(): Promise<void> {
+    try {
+      if (!(await this.db.repos.sync.state())) return;
+      await this.syncNow();
+    } catch {
+      // Retried on the next start, resume or change.
+    }
+  }
 
   async refresh(): Promise<SharingView> {
     if (!this.available) return 'off';
@@ -51,12 +90,14 @@ export class SharingService {
     return status;
   }
 
-  async startSharing(selfName: string): Promise<void> {
-    try {
-      await (await this.sharing()).startSharing(selfName);
-    } finally {
-      await this.afterChange();
-    }
+  startSharing(selfName: string): Promise<void> {
+    return this.queue.run(async () => {
+      try {
+        await (await this.sharing()).startSharing(selfName);
+      } finally {
+        await this.afterChange();
+      }
+    });
   }
 
   async createInvite(): Promise<string> {
@@ -87,18 +128,22 @@ export class SharingService {
     }
   }
 
-  async checkJoin(): Promise<JoinProgress> {
-    const progress = await (await this.sharing()).checkJoin();
-    if (progress.state !== 'waiting') await this.afterChange();
-    return progress;
+  checkJoin(): Promise<JoinProgress> {
+    return this.queue.run(async () => {
+      const progress = await (await this.sharing()).checkJoin();
+      if (progress.state !== 'waiting') await this.afterChange();
+      return progress;
+    });
   }
 
-  async chooseStart(choice: 'space' | 'mine'): Promise<JoinProgress> {
-    try {
-      return await (await this.sharing()).chooseStart(choice);
-    } finally {
-      await this.afterChange();
-    }
+  chooseStart(choice: 'space' | 'mine'): Promise<JoinProgress> {
+    return this.queue.run(async () => {
+      try {
+        return await (await this.sharing()).chooseStart(choice);
+      } finally {
+        await this.afterChange();
+      }
+    });
   }
 
   async cancelJoin(): Promise<void> {
@@ -106,21 +151,27 @@ export class SharingService {
     await this.refresh();
   }
 
-  async syncNow(): Promise<SyncReport> {
-    const report = await (await this.sharing()).sync();
-    if (report.changedTypes.length > 0) await this.sync.afterChange({ quiet: true });
-    await this.refresh();
-    return report;
+  syncNow(): Promise<SyncReport> {
+    return this.queue.run(async () => {
+      const report = await (await this.sharing()).sync();
+      if (report.changedTypes.length > 0)
+        await this.sync.afterChange({ quiet: true, remote: true });
+      await this.refresh();
+      return report;
+    });
   }
 
   /** Back to solo on this device; every record stays. */
-  async stopSharingHere(): Promise<void> {
-    await (await this.sharing()).stopSharingHere();
-    await this.afterChange();
+  stopSharingHere(): Promise<void> {
+    return this.queue.run(async () => {
+      await (await this.sharing()).stopSharingHere();
+      await this.afterChange();
+    });
   }
 
+  /** State changed by the sharing flow itself (it has already synced what it needed to). */
   private async afterChange(): Promise<void> {
-    await this.sync.afterChange({ quiet: true });
+    await this.sync.afterChange({ quiet: true, remote: true });
     await this.refresh();
   }
 

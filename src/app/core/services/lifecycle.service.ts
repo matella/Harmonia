@@ -7,6 +7,7 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { applyPreferredTextScale } from '../platform/text-scale';
 import { AppStore } from '../state/app-store';
 import { routeForLink } from './deep-links';
+import { SharingService } from './sharing.service';
 import { SyncService } from './sync.service';
 import { UsageService } from './usage.service';
 import { WidgetService } from './widget.service';
@@ -25,6 +26,7 @@ export class LifecycleService {
   private readonly sync = inject(SyncService);
   private readonly widgets = inject(WidgetService);
   private readonly usage = inject(UsageService);
+  private readonly sharing = inject(SharingService);
   private readonly router = inject(Router);
   private readonly zone = inject(NgZone);
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -69,6 +71,7 @@ export class LifecycleService {
     const zoneChanged = this.store.deviceTimeZone() !== this.lastZone;
     this.remember();
     await this.sync.runSideEffects(true);
+    this.sharing.requestSync();
     if (dayChanged || zoneChanged) await this.widgets.reload().catch(() => undefined);
   }
 

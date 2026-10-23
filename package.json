@@ -17,6 +17,7 @@
     "cap:sync": "ng build && cap sync",
     "android:sync": "ng build && cap sync android",
     "android:build": "bun run android:sync && node scripts/gradle.mjs assembleDebug",
+    "android:build:dev": "ng build --configuration development && cap sync android && node scripts/gradle.mjs assembleDebug",
     "android:test": "node scripts/gradle.mjs :harmonia-core:test :app:testDebugUnitTest",
     "android:release": "bun run android:sync && node scripts/gradle.mjs bundleRelease",
     "ios:sync": "ng build && cap sync ios"

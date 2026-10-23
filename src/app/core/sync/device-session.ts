@@ -30,6 +30,18 @@ export interface ConnectedDevice {
 }
 
 /** The server no longer accepts this device (revoked, or its credential is gone). */
+/**
+ * This device's keys could not be read. On iOS a Keychain read while the phone is locked
+ * returns nothing rather than an error, so "no keys" is never taken to mean "new device"
+ * except when the user is starting or joining a space.
+ */
+export class DeviceKeysUnavailableError extends Error {
+  constructor() {
+    super('This device’s sharing keys are not available right now.');
+    this.name = 'DeviceKeysUnavailableError';
+  }
+}
+
 export class DeviceLostError extends Error {
   constructor() {
     super('This device is no longer registered for sharing.');
@@ -77,11 +89,15 @@ export class DeviceSession {
     private readonly createClient: (storage: AuthStorage) => SupabaseClient,
   ) {}
 
-  /** Signs in (or resumes), registers or re-attaches this device. Safe to call repeatedly. */
-  connect(): Promise<ConnectedDevice> {
+  /**
+   * Signs in (or resumes), registers or re-attaches this device. Safe to call repeatedly.
+   * `createKeys` is only for the user starting or joining a space; anywhere else missing
+   * keys raise `DeviceKeysUnavailableError` instead of replacing this device's identity.
+   */
+  connect(options: { createKeys?: boolean } = {}): Promise<ConnectedDevice> {
     // Once established, the device is reused: the client refreshes its own token, and a
     // check with the server on every call would only add requests.
-    this.connecting ??= this.establish().catch((error: unknown) => {
+    this.connecting ??= this.establish(options.createKeys ?? false).catch((error: unknown) => {
       this.connecting = null;
       throw error;
     });
@@ -103,8 +119,8 @@ export class DeviceSession {
     };
   }
 
-  private async establish(): Promise<ConnectedDevice> {
-    const { keys, created } = await this.loadOrCreateKeys();
+  private async establish(createKeys: boolean): Promise<ConnectedDevice> {
+    const { keys, created } = await this.loadOrCreateKeys(createKeys);
     const client = (this.client ??= this.createClient(this.authStorage()));
     // New keys are a new device: never reuse a session that belonged to an older one.
     if (created) await client.auth.signOut({ scope: 'local' });
@@ -124,7 +140,9 @@ export class DeviceSession {
     return { client, keys, deviceId };
   }
 
-  private async loadOrCreateKeys(): Promise<{ keys: DeviceKeys; created: boolean }> {
+  private async loadOrCreateKeys(
+    createKeys: boolean,
+  ): Promise<{ keys: DeviceKeys; created: boolean }> {
     const stored = await this.secrets.get(NAMES.keys);
     if (stored) {
       const parsed = JSON.parse(stored) as StoredKeys;
@@ -136,6 +154,7 @@ export class DeviceSession {
       };
       return { keys, created: false };
     }
+    if (!createKeys) throw new DeviceKeysUnavailableError();
     // New keys mean a new device: forget any registration that belonged to older keys.
     for (const name of [NAMES.id, NAMES.secret, NAMES.nextSecret]) await this.secrets.remove(name);
     const keys = this.crypto.generateDeviceKeys();

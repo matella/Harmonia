@@ -206,7 +206,7 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
   it('finishes turning sharing on after a crash right after the server created the space', async () => {
     const kim = await phone();
     await kim.profiles.save(profile({ selfName: 'Kim' }));
-    const device = await kim.session.connect();
+    const device = await kim.session.connect({ createKeys: true });
     const key = crypto.newSpaceKey();
     const spaceId = newId();
     await kim.secrets.set('sharing.pendingKey', JSON.stringify({ spaceId, key: toBase64(key) }));

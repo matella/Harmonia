@@ -25,6 +25,12 @@ export class SyncService {
   private readonly widgets = inject(WidgetService);
   private readonly notice = inject(NoticeService);
   private readonly t = inject(I18nService).translator;
+  private readonly changeListeners: (() => void)[] = [];
+
+  /** Called after every local change (partner sharing uploads it). */
+  onLocalChange(listener: () => void): void {
+    this.changeListeners.push(listener);
+  }
 
   async reload(): Promise<void> {
     const { profile, milestones, memories, settings } = this.db.repos;
@@ -42,10 +48,15 @@ export class SyncService {
     this.store.settings.set(s);
   }
 
-  /** Reload, then run side effects. Call after every successful write. */
-  async afterChange(options: { quiet?: boolean } = {}): Promise<SyncOutcome> {
+  /**
+   * Reload, then run side effects. Call after every successful write. `remote` marks
+   * changes that arrived from the partner, which must not be sent back.
+   */
+  async afterChange(options: { quiet?: boolean; remote?: boolean } = {}): Promise<SyncOutcome> {
     await this.reload();
-    return this.runSideEffects(options.quiet ?? false);
+    const outcome = await this.runSideEffects(options.quiet ?? false);
+    if (!options.remote) for (const listener of this.changeListeners) listener();
+    return outcome;
   }
 
   async runSideEffects(quiet: boolean): Promise<SyncOutcome> {

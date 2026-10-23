@@ -105,7 +105,7 @@ export class Sharing {
   async startSharing(selfName: string): Promise<void> {
     if (await this.deps.store.state()) throw new SharingError('alreadySharing');
     const selfId = await this.ensureSelfName(selfName);
-    const device = await this.deps.session.connect();
+    const device = await this.deps.session.connect({ createKeys: true });
     const api = new SpaceApi(device.client);
 
     // The new space's ID and key are chosen and stored here first, so the envelope can be
@@ -221,7 +221,7 @@ export class Sharing {
     const code = parseInviteCode(text);
     if (!code) throw new SharingError('invalidCode');
     const selfId = await this.ensureSelfName(selfName);
-    const device = await this.deps.session.connect();
+    const device = await this.deps.session.connect({ createKeys: true });
     const pending: PendingJoin = { inviteId: code.inviteId, secret: toBase64(code.secret) };
     await this.write(NAMES.join, pending);
     try {

@@ -116,9 +116,9 @@ describe.skipIf(!live)('sync over a live local Supabase', () => {
     const aSecrets = new MemorySecureKeyStore();
     const bSecrets = new MemorySecureKeyStore();
     const aSession = sessionFor(aSecrets);
-    const a = await aSession.connect();
+    const a = await aSession.connect({ createKeys: true });
     expect((await aSession.connect()).client).toBe(a.client); // one client per session
-    const b = await sessionFor(bSecrets).connect();
+    const b = await sessionFor(bSecrets).connect({ createKeys: true });
     expect(a.deviceId).not.toBe(b.deviceId);
 
     // Space and invite (the screens come in slice 3).
@@ -204,7 +204,7 @@ describe.skipIf(!live)('sync over a live local Supabase', () => {
 
   it('recovers when the server took a new secret but the device did not save it', async () => {
     const secrets = new MemorySecureKeyStore();
-    const first = await sessionFor(secrets).connect();
+    const first = await sessionFor(secrets).connect({ createKeys: true });
     // Re-attach from another session, as if the app crashed right after the server
     // accepted the next secret: it is stored as pending, the old one is still current.
     const pending = randomBytes(32);
@@ -226,7 +226,7 @@ describe.skipIf(!live)('sync over a live local Supabase', () => {
 
   it('reports a revoked device as lost instead of registering it again', async () => {
     const secrets = new MemorySecureKeyStore();
-    const device = await sessionFor(secrets).connect();
+    const device = await sessionFor(secrets).connect({ createKeys: true });
     expect(
       (
         await device.client.rpc('create_space', {

@@ -534,16 +534,16 @@ export class SharingPage implements OnInit, OnDestroy {
   protected async approve(): Promise<void> {
     await this.run(async () => {
       await this.sharing.approveInvite();
-      await this.notice.show(this.t.t('sharing.approved'));
       this.view.set({ kind: 'member' });
+      this.tell('sharing.approved');
     });
   }
 
   protected async decline(): Promise<void> {
     await this.run(async () => {
       await this.sharing.declineInvite();
-      await this.notice.show(this.t.t('sharing.declined'));
       this.view.set({ kind: 'member' });
+      this.tell('sharing.declined');
     });
   }
 
@@ -576,15 +576,15 @@ export class SharingPage implements OnInit, OnDestroy {
     if (!confirmed) return;
     await this.run(async () => {
       await this.sharing.stopSharingHere();
-      await this.notice.show(this.t.t('sharing.stopped'));
       this.view.set({ kind: 'off' });
+      this.tell('sharing.stopped');
     });
   }
 
   protected async copy(code: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(code);
-      await this.notice.show(this.t.t('sharing.copied'));
+      this.tell('sharing.copied');
     } catch {
       // Clipboard unavailable: the code stays selectable on screen.
     }
@@ -652,10 +652,10 @@ export class SharingPage implements OnInit, OnDestroy {
     if (progress.state === 'waiting') this.joinSafety.set(progress.safetyCode);
     if (progress.state === 'joined') {
       const name = this.partnerName();
-      await this.notice.show(
+      this.view.set({ kind: 'member' });
+      void this.notice.show(
         name ? this.t.t('sharing.joined', { name }) : this.t.t('sharing.joinedNoName'),
       );
-      this.view.set({ kind: 'member' });
       return;
     }
     if (progress.state === 'gone') {
@@ -664,6 +664,14 @@ export class SharingPage implements OnInit, OnDestroy {
       return;
     }
     this.view.set({ kind: 'joining', progress });
+  }
+
+  /**
+   * Shows a toast without waiting for it: the screen state is already updated, and a toast
+   * whose animation cannot run (a hidden window) must never hold the screen.
+   */
+  private tell(key: MessageKey): void {
+    void this.notice.show(this.t.t(key));
   }
 
   private async run(work: () => Promise<void>): Promise<void> {

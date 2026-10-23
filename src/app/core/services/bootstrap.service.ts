@@ -7,6 +7,7 @@ import { DatabaseService } from './database.service';
 import { I18nService } from './i18n.service';
 import { LifecycleService } from './lifecycle.service';
 import { thumbnailSiblings } from './profile.service';
+import { SharingService } from './sharing.service';
 import { SyncService } from './sync.service';
 import { ThemeService } from './theme.service';
 import { TrashService } from './trash.service';
@@ -27,6 +28,7 @@ export class BootstrapService {
   private readonly i18n = inject(I18nService);
   private readonly usage = inject(UsageService);
   private readonly trash = inject(TrashService);
+  private readonly sharing = inject(SharingService);
 
   constructor() {
     inject(ThemeService); // applies the theme as soon as settings load
@@ -58,6 +60,7 @@ export class BootstrapService {
 
   private async afterStart(): Promise<void> {
     await this.sync.runSideEffects(true);
+    this.sharing.requestSync();
     this.usage.trackStart();
     try {
       // Purge first: items older than 30 days leave the trash, then their files are orphans.

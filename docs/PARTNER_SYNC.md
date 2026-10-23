@@ -480,8 +480,42 @@ No screens yet; everything below is driven by tests.
 - If both people added "Our anniversary" during onboarding, they will have two such dates after joining (different IDs). Merging look-alike dates on join is left for later.
 - Copy uses the web clipboard; check it in the Android WebView in slice 4.
 
-**Next slices:**
-4. Wire the engine into the app (start, resume, after local changes). Android's debug-only route to the local Supabase stack (`10.0.2.2`) needs cleartext allowed in debug builds only.
+### Slice 4: automatic sync and the Android route to the local stack (2026-10-23)
+
+**When sync runs** (`SharingService.requestSync`): when the app starts, when it comes back to the foreground (or the browser tab becomes visible), and 2 seconds after a local change (quick successive edits share one sync). That is the whole list: there is no timer and no background sync (§9).
+- A **solo device stops after one local database check**: no sharing code is loaded and no request is made.
+- Syncs and the sharing steps (start, join, choose the start date, stop) run **one at a time**.
+- Failures are silent (offline, a join still waiting for its answer, keys unavailable); the next trigger tries again.
+- Changes that arrived from the partner are not sent back: the reload after a sync does not count as a local change.
+
+**Device keys are created only when the user starts or joins sharing.** On iOS the secure-storage plugin returns nothing (no error) when the Keychain can't be read, for example while the phone is locked (checked in its source: `keychain.get` returns nil). Before this, "no keys" meant "new device" and the identity would have been replaced; now any other read without keys stops with `DeviceKeysUnavailableError`, and the registration is kept.
+
+**Android debug builds reach the local stack:**
+- `bun run android:build:dev` builds the web app in development mode, syncs and assembles the debug APK.
+- `adb reverse tcp:54321 tcp:54321` makes `127.0.0.1:54321` on the emulator reach this machine.
+- `android/app/src/debug` adds a network security config that allows plain HTTP **only to `127.0.0.1` and `localhost`, only in debug builds**. Release builds keep Android's default (no cleartext) and have no development server.
+
+**Verified on the emulator** (API 37.2, Android Keystore) with the browser preview as the second phone, both on the local Supabase stack in Docker:
+- The emulator, with its existing data (together since 14 June 2024), started sharing as Alex and created an invite. The browser phone (Sam) joined with it; both showed safety code **199 411**. The emulator accepted; Sam kept the partner's start date.
+- Afterwards both phones had the same start date, each other's names ("Shared with Sam" and "Alex"), and both sets of dates. The emulator's own reminder was unchanged, and the received date had none.
+- An edit of the relationship label on the emulator reached the server **without pressing Sync now** (server cursor 387 → 390 about 2 seconds after saving).
+- Sending the app to the background and back ran exactly one sync (two pulls, nothing to push). With the app open and idle, there were no requests in 40 seconds.
+- Membership survived reinstalling the APK over itself (keys in the Keystore).
+
+**Also fixed:** the sharing screen updates first and shows toasts without waiting for them. A toast whose animation can't run (a hidden window) held the screen in its busy state after joining.
+
+**Tests:** `sharing.service.spec.ts` (2: a solo device checks only the local database and loads nothing; no server, no checks at all); `sync/sharing.test.ts` adds a device whose keys can't be read keeping its registration.
+
+**Not verified yet:**
+- Two emulators, or an emulator and a real phone. The browser served as the second phone.
+- iOS, which needs a real iPhone (see the implementation plan).
+- Copying the code in the Android WebView: a member's screen has no invite to copy until adding a device (phase 3).
+
+**Seen during the test:**
+- Both phones had an "Our anniversary" date from onboarding, so after joining there are two (the merge-look-alike-dates note under slice 3b).
+- While the browser pane was hidden, its tab synced about every 17 seconds. That is the resume trigger firing on each visibility change of the hidden pane, which does not happen on a phone.
+
+**Phase 2 status:** the invite and core sync are complete for the profile, persons and dates. They are verified between the Android emulator and the browser preview against a local server. Next is phase 3 (devices and leaving), then phase 4 (recovery key), which real users need before `SYNC_CONFIG` can be set.
 
 **Still open from phase 1:**
 - "Delete forever" and the 30-day purge remove the row locally but do not reach the other device yet. They need a content-free tombstone that syncs.
