@@ -530,4 +530,32 @@ describe('sync engine (two devices, in-memory server)', () => {
       '2026-10-23T12:00:00Z',
     ]);
   });
+
+  it('waits at a record under an epoch whose key it does not have yet', async () => {
+    const { server, b } = await pair();
+    const before = (await b.store.state())!.cursor;
+    const address = {
+      spaceId: SPACE,
+      recordType: 'milestone',
+      recordId: '0c0c0c0c-0c0c-4c0c-8c0c-0c0c0c0c0c0c',
+      epoch: 2,
+      version: '1792670000000-000000-0000beef',
+      deleted: false,
+    };
+    await server.push(SPACE, [
+      {
+        recordType: 'milestone',
+        recordId: address.recordId,
+        epoch: 2,
+        version: address.version,
+        deleted: false,
+        ...crypto.encryptRecord(crypto.newSpaceKey(), address, '{}'),
+      },
+    ]);
+    const report = await b.engine.sync();
+    expect(report.awaitingKey).toBe(true);
+    expect(report.deferred).toBe(false);
+    expect(report.rejected).toBe(0);
+    expect((await b.store.state())!.cursor).toBe(before);
+  });
 });

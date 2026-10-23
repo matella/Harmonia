@@ -11,16 +11,21 @@ import { beforeAll, describe, expect, it } from 'vitest';
 const live = process.env['SUPABASE_LIVE'] === '1';
 
 function localStack(): { url: string; key: string } {
-  const status = JSON.parse(execSync('bunx supabase status -o json', { encoding: 'utf-8' })) as Record<string, string>;
+  const status = JSON.parse(
+    execSync('bunx supabase status -o json', { encoding: 'utf-8' }),
+  ) as Record<string, string>;
   return { url: status['API_URL'], key: status['PUBLISHABLE_KEY'] ?? status['ANON_KEY'] };
 }
 
-const hex = (bytes: Uint8Array) => '\\x' + [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+const hex = (bytes: Uint8Array) =>
+  '\\x' + [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 const random = (n: number) => crypto.getRandomValues(new Uint8Array(n));
 const version = (ms: number) => `${String(ms).padStart(13, '0')}-000000-0000abcd`;
 
 async function device(url: string, key: string): Promise<SupabaseClient> {
-  const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const client = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
   const { error: authError } = await client.auth.signInAnonymously();
   if (authError) throw authError;
   const { error } = await client.rpc('register_device', {
@@ -42,11 +47,18 @@ describe.skipIf(!live)('sharing on a live local Supabase', () => {
 
   beforeAll(async () => {
     const { url, key } = localStack();
-    [inviter, partner, stranger] = await Promise.all([device(url, key), device(url, key), device(url, key)]);
+    [inviter, partner, stranger] = await Promise.all([
+      device(url, key),
+      device(url, key),
+      device(url, key),
+    ]);
   });
 
   it('creates a space and stores an encrypted record only members can read', async () => {
-    const created = await inviter.rpc('create_space', { sealed_key: hex(random(80)), self_person: crypto.randomUUID() });
+    const created = await inviter.rpc('create_space', {
+      sealed_key: hex(random(80)),
+      self_person: crypto.randomUUID(),
+    });
     expect(created.error).toBeNull();
     space = (created.data as { space_id: string }[])[0].space_id;
     const insert = await inviter.from('records').insert({
@@ -70,26 +82,42 @@ describe.skipIf(!live)('sharing on a live local Supabase', () => {
       nonce: hex(random(24)),
       ciphertext: hex(random(64)),
     });
-    expect(intrude.error?.message).toMatch(/row-level security/);
+    // Never stored: skipped (no epoch visible to a stranger) or refused by row-level security.
+    expect(intrude.error?.message ?? 'skipped').toMatch(/row-level security|skipped/);
+    expect((await inviter.from('records').select('record_id')).data).toHaveLength(1);
   });
 
   it('runs the invite, claim and approve flow with single-use invites', async () => {
     const invite = await inviter.rpc('create_invite', { wrapped_key: hex(random(72)) });
     expect(invite.error).toBeNull();
     const id = invite.data as string;
-    expect((await partner.rpc('claim_invite', { invite: id, person: crypto.randomUUID() })).error).toBeNull();
-    expect((await stranger.rpc('claim_invite', { invite: id, person: crypto.randomUUID() })).error?.message).toMatch(/invite unavailable/);
+    expect(
+      (await partner.rpc('claim_invite', { invite: id, person: crypto.randomUUID() })).error,
+    ).toBeNull();
+    expect(
+      (await stranger.rpc('claim_invite', { invite: id, person: crypto.randomUUID() })).error
+        ?.message,
+    ).toMatch(/invite unavailable/);
     expect((await partner.from('records').select('record_id')).data).toEqual([]);
-    expect((await stranger.rpc('approve_invite', { invite: id })).error?.message).toMatch(/not allowed/);
+    expect((await stranger.rpc('approve_invite', { invite: id })).error?.message).toMatch(
+      /not allowed/,
+    );
     expect((await inviter.rpc('approve_invite', { invite: id })).error).toBeNull();
     expect((await partner.rpc('accept_invite', { invite: id })).error).toBeNull();
-    expect((await partner.rpc('finish_join', { invite: id, sealed_key: hex(random(80)) })).error).toBeNull();
-    expect((await partner.from('records').select('record_id')).data).toEqual([{ record_id: recordId }]);
+    expect(
+      (await partner.rpc('finish_join', { invite: id, sealed_key: hex(random(80)) })).error,
+    ).toBeNull();
+    expect((await partner.from('records').select('record_id')).data).toEqual([
+      { record_id: recordId },
+    ]);
     expect((await partner.from('key_envelopes').select('id')).data).toHaveLength(1);
   });
 
   it('ignores an older version and dissolves the space for everyone', async () => {
-    await partner.from('records').update({ version: version(500), ciphertext: hex(random(64)) }).eq('record_id', recordId);
+    await partner
+      .from('records')
+      .update({ version: version(500), ciphertext: hex(random(64)) })
+      .eq('record_id', recordId);
     const row = await partner.from('records').select('version').eq('record_id', recordId).single();
     expect(row.data?.version).toBe(version(1000));
     expect((await partner.rpc('dissolve_space')).error).toBeNull();

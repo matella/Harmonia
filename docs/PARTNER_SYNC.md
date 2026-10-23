@@ -177,7 +177,9 @@ Removing a device seals a new space key `K[n+1]` to every remaining device. If t
 ### 7.3 Envelopes signed by the device that sealed them
 Envelopes gain a `signer_device_id`. A device trusts an envelope only if its signature verifies with the signer's signing key, and the signer is:
 - this device itself (as today); or
-- a device on the verified list that was not removed before that epoch.
+- a device on the verified list that has not been removed.
+
+A device whose signer was itself removed later can't verify that older envelope. That happens only if the device missed two rotations and the first remover was removed afterwards. It then shows that it can't open the new key, and adding it again fixes it.
 
 ### 7.4 Removing a device (§6.4)
 1. The removing device creates `K[n+1]` and **stores it locally first**.
@@ -192,7 +194,7 @@ Envelopes gain a `signer_device_id`. A device trusts an envelope only if its sig
 The removed device keeps what it already downloaded (§6.4). It can't read anything new: it never receives `K[n+1]`, and the server stops serving it.
 
 ### 7.5 Old epochs
-Records keep the epoch they were written under; members keep old keys to read history. A device that joins later needs every epoch, not only the current one: **the invite envelope carries all epoch keys** (a small key bundle instead of one key), and the joiner files its own sealed envelope for each. The alternative, re-encrypting history at every rotation, would rewrite every record and race with concurrent edits.
+Records keep the epoch they were written under; members keep old keys to read history. A device that joins later needs every epoch, not only the current one: **the invite envelope carries all epoch keys** (a small key bundle instead of one key), and the joiner files its own sealed envelope for each (`store_own_envelopes`). The alternative, re-encrypting history at every rotation, would rewrite every record and race with concurrent edits.
 
 ### 7.6 Adding one of my devices (§6.3)
 - *Add a device* in the shared state creates the same kind of invite, marked locally as "for me". Approving it uses `approve_invite(invite, as_person = me)`.
@@ -618,6 +620,61 @@ Builds §7.6. In the shared state, *Add one of my devices* creates the same kind
 - Live: Alex adds a tablet with a different start date. The safety codes match, there is no date question, both devices share one person, the tablet's date reaches the phone, and the device list has two devices of the same person.
 - Page spec: the button creates a "for me" invite with its own wording.
 - Not run on a device: the screens are the partner flow's, apart from the button and wording covered by the spec.
+
+### Phase 3, slice 4: removing a device (2026-10-23)
+
+Builds §7.3–7.5. In the shared state, *Your devices* lists this device and my other devices (never the partner's, §7.7) with *Remove* on the others, after a confirmation: the device stops receiving anything new, the space gets a new key, and what's already on it stays.
+- **Removing** (`Sharing.removeDevice`):
+  - a new key, stored locally first, is sealed and signed to every other listed device;
+  - then one server call, `rotate(target, expected_epoch, envelopes)`, does it all or nothing;
+  - the removed device's entry is marked removed;
+  - if another device rotated first, it refuses and the user tries again;
+  - a crash after the call is finished by the next sync.
+- **The other devices** notice a newer epoch on their next sync. They take the key from their envelope only if it was signed by themselves or by a listed device **that hasn't been removed**.
+  - If the signer's entry hasn't arrived yet, they first pull what the keys in hand can read. The engine now **stops at a record under an epoch whose key it doesn't have yet** (`awaitingKey`), instead of rejecting and skipping it. Then they try again.
+  - An untrusted key is never adopted: "This device can't open the new sharing key yet".
+- **The removed device** learns it was removed on its next sync, goes solo, keeps everything it had, and says "This device was removed from the shared space. Everything already on it stays."
+- **Repair:** each sync seals the current key to listed, non-removed devices that have no envelope yet (`devices_missing_envelope`, `seal_missing`). An existing envelope is never replaced.
+- **Old epochs:** writes under any epoch but the current one are skipped by the server. The invite envelope now carries **every epoch's key and, for my own devices, the person** (`invite-bundle.ts`), sealed with the invite secret.
+  - A device added after a removal reads history, and files its own envelopes for the older epochs (`store_own_envelopes`).
+  - The joining device accepts the server's person only if the sealed bundle agrees.
+- **Server** (`20261023000400_rotation.sql`, `20261023000500_own_envelopes.sql`):
+  - `rotate`, `devices_missing_envelope`, `seal_missing` and `store_own_envelopes`;
+  - envelopes record their signer;
+  - `revoke_device` is gone (it started an epoch with no envelopes);
+  - `approve_invite` admits a device "as a person" only for the approver's own person.
+
+**Security reviews of slice 3 and this slice, fixed:**
+- **Device entries:** a received device entry can't move a known device to another person, change its keys or undo its removal.
+- **The joining device's person:** it checks the person against the sealed bundle.
+- **Removed signers:** a removed device no longer vouches for keys. Otherwise a hostile server could plant a key signed by a removed device and read what the others write next.
+- **Interrupted removals:** one is completed only if the adopted key is the one this device created. Another device may have rotated first, and marking its target removed would have cut it off for good.
+
+**Tests:**
+- PGlite (`rotation.test.ts`, 5):
+  - all or nothing when one envelope is refused;
+  - removal and the new epoch in one step, then a second rotation on top of the old epoch refused;
+  - old-epoch writes skipped;
+  - repair that never replaces;
+  - "as a person" only for oneself.
+- sql.js:
+  - a record under a missing epoch waits;
+  - the invite bundle, including older 32-byte invites.
+- Page spec: my devices listed, *Remove* never on this device, asked first.
+- **Live, on the local stack** (Alex's phone and tablet, Sam's phone, later Alex's new phone and Sam's tablet):
+  - Alex's phone removes the tablet; Sam adopts epoch 2 from the envelope Alex's phone signed; Sam's next record reaches Alex.
+  - The tablet learns it was removed and keeps its data.
+  - **Read as the database owner, the record written after the removal can't be decrypted with the tablet's key; the new key can.**
+  - A phone added afterwards reads the records from before the removal.
+  - A lost reply during a concurrent removal does not mark the wrong device removed.
+  - A key planted by the server and signed by the removed tablet is refused.
+
+**Not verified:**
+- From the app side: retrying after `epochChanged`, a crash right after `rotate`, and repair for a device added just before a rotation (the server functions are tested).
+- On a device: nothing in this slice ran on the emulator.
+- Recovery envelopes aren't re-wrapped yet: that's phase 4 (§7.8).
+
+**Phase 3's done-when** ("the removed device can't decrypt new records; both keep data after dissolving") is met in live tests against the local stack, not yet on devices.
 
 **Phase 2 status:** the invite and core sync are complete for the profile, persons and dates. They are verified between the Android emulator and the browser preview against a local server. Next is phase 3 (devices and leaving), then phase 4 (recovery key), which real users need before `SYNC_CONFIG` can be set.
 

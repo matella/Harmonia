@@ -82,7 +82,7 @@ describe('membership()', () => {
 
   it('reports a revoked device, and nothing for a user without a device', async () => {
     const [{ device_id: alexDevice }] = await membership(users.alex);
-    await server.as(users.alex, () => server.q(`select revoke_device($1)`, [alexDevice]));
+    await server.as(users.alex, () => server.q(`select rotate($1, 1, '[]'::jsonb)`, [alexDevice]));
     expect((await membership(users.alex))[0].revoked).toBe(true);
     expect(await membership(users.nobody)).toEqual([]);
   });

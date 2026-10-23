@@ -8,6 +8,7 @@ import type {
   CurrentInvite,
   InviteProgress,
   JoinProgress,
+  MyDevice,
   Sharing,
   SharingStatus,
 } from '../sync/sharing';
@@ -174,8 +175,13 @@ export class SharingService {
       } catch (error) {
         if ((error as { code?: unknown } | null)?.code !== 'sharingEnded') throw error;
         await this.afterChange();
+        const removed = (error as { reason?: unknown }).reason === 'removed';
         void this.notice.show(
-          partner ? this.t.t('sharing.ended', { name: partner }) : this.t.t('sharing.endedNoName'),
+          removed
+            ? this.t.t('sharing.removedHere')
+            : partner
+              ? this.t.t('sharing.ended', { name: partner })
+              : this.t.t('sharing.endedNoName'),
         );
         return 'ended';
       }
@@ -187,6 +193,19 @@ export class SharingService {
   }
 
   /** Leaves the space for both people; this device keeps everything. */
+  /** My devices in the space; only these can be removed from the screen (§7.7). */
+  async myDevices(): Promise<MyDevice[]> {
+    return (await this.sharing()).myDevices();
+  }
+
+  /** Removes one of my other devices and changes the space key (§7.4). */
+  removeDevice(deviceId: string): Promise<void> {
+    return this.queue.run(async () => {
+      await (await this.sharing()).removeDevice(deviceId);
+      await this.afterChange();
+    });
+  }
+
   leave(): Promise<void> {
     return this.queue.run(async () => {
       await (await this.sharing()).leave();

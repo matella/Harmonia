@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { fromBytea, toBytea } from './encoding';
+import { fromBytea, toBase64, toBytea } from './encoding';
 import type { DevicePublicKeys } from './sync-crypto-port';
 
 /**
@@ -13,6 +13,7 @@ export type SpaceErrorCode =
   | 'alreadyInSpace'
   | 'personExists'
   | 'notAllowed'
+  | 'epochChanged'
   | 'network'
   | 'server';
 
@@ -57,6 +58,15 @@ export interface SealedEnvelope {
   sealed: Uint8Array;
   /** The sealing device's signature over `envelopeMessage(…)`; null if unsigned. */
   signature: Uint8Array | null;
+  /** The device that sealed and signed it; null means the recipient itself. */
+  signerDeviceId: string | null;
+}
+
+/** A new envelope for another device: the space key sealed to it and signed by this one. */
+export interface EnvelopeForDevice {
+  deviceId: string;
+  sealed: Uint8Array;
+  signature: Uint8Array;
 }
 
 interface EnvelopeRow {
@@ -65,13 +75,22 @@ interface EnvelopeRow {
   device_id: string | null;
   sealed: string;
   signature: string | null;
+  signer_device_id: string | null;
 }
+
+const envelopesJson = (envelopes: readonly EnvelopeForDevice[]) =>
+  envelopes.map((e) => ({
+    device_id: e.deviceId,
+    sealed: toBase64(e.sealed),
+    signature: toBase64(e.signature),
+  }));
 
 const MESSAGES: [RegExp, SpaceErrorCode][] = [
   [/invite unavailable|invite not ready/, 'inviteUnavailable'],
   [/not approved yet/, 'notApprovedYet'],
   [/already in a space|already approved/, 'alreadyInSpace'],
   [/person exists/, 'personExists'],
+  [/epoch changed/, 'epochChanged'],
   [/not allowed|not a member|unknown device/, 'notAllowed'],
 ];
 
@@ -192,7 +211,7 @@ export class SpaceApi {
   async ownEnvelopes(): Promise<SealedEnvelope[]> {
     const { data, error } = await this.client
       .from('key_envelopes')
-      .select('space_id,epoch,device_id,sealed,signature');
+      .select('space_id,epoch,device_id,sealed,signature,signer_device_id');
     if (error) throw new SpaceApiError(error.code ? 'server' : 'network', 'ownEnvelopes');
     return ((data ?? []) as EnvelopeRow[]).map((row) => ({
       spaceId: row.space_id,
@@ -200,7 +219,56 @@ export class SpaceApi {
       deviceId: row.device_id,
       sealed: fromBytea(row.sealed),
       signature: row.signature ? fromBytea(row.signature) : null,
+      signerDeviceId: row.signer_device_id,
     }));
+  }
+
+  /**
+   * Removes `target` and starts the next epoch with these envelopes, all or nothing (§7.4).
+   * Fails with 'epochChanged' when the space is no longer at `expectedEpoch`.
+   */
+  async rotate(
+    target: string,
+    expectedEpoch: number,
+    envelopes: readonly EnvelopeForDevice[],
+  ): Promise<number> {
+    return this.call<number>('rotate', 'rotate', {
+      target,
+      expected_epoch: expectedEpoch,
+      envelopes: envelopesJson(envelopes),
+    });
+  }
+
+  /** Devices of the space (not removed) with no envelope for the current epoch. */
+  async devicesMissingEnvelope(): Promise<string[]> {
+    const rows = await this.call<{ device_id: string }[]>(
+      'devicesMissingEnvelope',
+      'devices_missing_envelope',
+      {},
+    );
+    return (rows ?? []).map((r) => r.device_id);
+  }
+
+  /** Repair: envelopes of the current epoch for devices that have none yet. */
+  async sealMissing(epoch: number, envelopes: readonly EnvelopeForDevice[]): Promise<void> {
+    await this.call('sealMissing', 'seal_missing', {
+      target_epoch: epoch,
+      envelopes: envelopesJson(envelopes),
+    });
+  }
+
+  /** Files this device's own envelopes (older epochs after joining); existing ones stay. */
+  async storeOwnEnvelopes(
+    envelopes: readonly { epoch: number; sealed: Uint8Array; signature: Uint8Array }[],
+  ): Promise<void> {
+    if (envelopes.length === 0) return;
+    await this.call('storeOwnEnvelopes', 'store_own_envelopes', {
+      envelopes: envelopes.map((e) => ({
+        epoch: e.epoch,
+        sealed: toBase64(e.sealed),
+        signature: toBase64(e.signature),
+      })),
+    });
   }
 
   private async call<T>(operation: string, fn: string, args: Record<string, unknown>): Promise<T> {

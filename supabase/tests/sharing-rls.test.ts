@@ -83,16 +83,17 @@ describe('sharing schema (PGlite + Supabase shim)', () => {
       ]),
     );
     expect(await as('stranger', () => q(`select * from records`))).toHaveLength(0);
-    await expect(
-      as('stranger', () =>
-        q(`insert into records (space_id, record_type, record_id, version, epoch, nonce, ciphertext) values ($1, 'milestone', gen_random_uuid(), $2, 1, $3, $4)`, [
-          space,
-          version(2000),
-          bytes(5, 24),
-          bytes(6, 64),
-        ]),
-      ),
-    ).rejects.toThrow(/row-level security/);
+    // A stranger's write never lands. (It is skipped before row-level security is even
+    // checked: the stranger can't see the space's epoch, so the write is under no epoch.)
+    await as('stranger', () =>
+      q(`insert into records (space_id, record_type, record_id, version, epoch, nonce, ciphertext) values ($1, 'milestone', gen_random_uuid(), $2, 1, $3, $4)`, [
+        space,
+        version(2000),
+        bytes(5, 24),
+        bytes(6, 64),
+      ]),
+    ).catch(() => undefined);
+    expect(await q(`select count(*)::int as n from records where version = $1`, [version(2000)])).toEqual([{ n: 0 }]);
   });
 
   it('invites are single use, need approval, and reveal only the wrapped key', async () => {
@@ -157,7 +158,7 @@ describe('sharing schema (PGlite + Supabase shim)', () => {
     ).rejects.toThrow(/immutable/);
   });
 
-  it('adds a second device for the same person, then revokes it with a new epoch', async () => {
+  it('adds a second device for the same person, then removes it with a new epoch', async () => {
     const [{ create_invite: invite }] = await as('matthieuPhone', () => q<{ create_invite: string }>(`select create_invite($1)`, [bytes(7, 72)]));
     await as('matthieuTablet', () => q(`select * from claim_invite($1, gen_random_uuid())`, [invite]));
     const [{ approve_invite: person }] = await as('matthieuPhone', () =>
@@ -168,7 +169,7 @@ describe('sharing schema (PGlite + Supabase shim)', () => {
     expect(await as('matthieuTablet', () => q(`select * from records`))).toHaveLength(2);
 
     const tablet = (await as('matthieuTablet', () => q<{ id: string }>(`select current_device_id() as id`)))[0].id;
-    const [{ revoke_device: epoch }] = await as('samPhone', () => q<{ revoke_device: number }>(`select revoke_device($1)`, [tablet]));
+    const [{ rotate: epoch }] = await as('samPhone', () => q<{ rotate: number }>(`select rotate($1, 1, '[]'::jsonb)`, [tablet]));
     expect(epoch).toBe(2);
     expect(await as('matthieuTablet', () => q(`select * from records`))).toHaveLength(0);
     expect(await as('matthieuTablet', () => q(`select * from key_envelopes`))).toHaveLength(0);

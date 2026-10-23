@@ -91,7 +91,7 @@ describe('device sessions (PGlite + Supabase shim)', () => {
     await server.as(users.partner, () =>
       server.q(`select create_space($1, gen_random_uuid())`, [bytes(9, 80)]),
     );
-    await server.as(users.partner, () => server.q(`select revoke_device($1)`, [partner]));
+    await server.as(users.partner, () => server.q(`select rotate($1, 1, '[]'::jsonb)`, [partner]));
     await expect(rebind(users.partnerAgain, partner, partnerSecret, bytes(62))).rejects.toThrow(
       /not allowed/,
     );

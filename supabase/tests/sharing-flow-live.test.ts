@@ -13,7 +13,7 @@ import { RelationshipRepository } from '../../src/app/core/persistence/relations
 import { SqlJsDriver } from '../../src/app/core/persistence/sqljs-driver';
 import { MemorySecureKeyStore } from '../../src/app/core/platform/secure-key-store';
 import { DeviceSession, type AuthStorage } from '../../src/app/core/sync/device-session';
-import { toBase64, toBytea } from '../../src/app/core/sync/encoding';
+import { fromBase64, toBase64, toBytea } from '../../src/app/core/sync/encoding';
 import { Sharing, SharingEndedError } from '../../src/app/core/sync/sharing';
 import { SpaceApi } from '../../src/app/core/sync/space-api';
 import { envelopeMessage, MissingSpaceKeyError } from '../../src/app/core/sync/space-keys';
@@ -363,6 +363,119 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
     const devices = await phoneA.store.devices();
     expect(devices).toHaveLength(2);
     expect(new Set(devices.map((d) => d.personId))).toEqual(new Set([(await self(phoneA)).id]));
+  });
+
+  it('removes one of my devices: a new key reaches the others, the removed one can read nothing new', async () => {
+    type Phone = Awaited<ReturnType<typeof phone>>;
+    const join = async (inviter: Phone, joiner: Phone, name: string, forMe: boolean) => {
+      const code = await inviter.sharing.createInvite({ forMe });
+      await joiner.sharing.claim(code, name);
+      await inviter.sharing.approveInvite();
+      let progress = await joiner.sharing.checkJoin();
+      if (progress.state === 'chooseStart') progress = await joiner.sharing.chooseStart('space');
+      expect(progress.state).toBe('joined');
+      await inviter.sharing.sync();
+    };
+    const alexPhone = await phone();
+    const alexTablet = await phone();
+    const sam = await phone();
+    for (const p of [alexPhone, alexTablet, sam]) await p.profiles.save(profile({}));
+    await alexPhone.milestones.create(date('Before the removal'));
+    await alexPhone.sharing.startSharing('Alex');
+    await join(alexPhone, alexTablet, 'Alex', true);
+    await join(alexPhone, sam, 'Sam', false);
+    await alexTablet.sharing.sync();
+    const space = (await alexPhone.store.state())!.spaceId;
+    const tablet = await alexTablet.session.connect();
+
+    const mine = await alexPhone.sharing.myDevices();
+    expect(mine.map((d) => d.thisDevice)).toEqual([true, false]);
+    expect(mine[1].id).toBe(tablet.deviceId);
+    await alexPhone.sharing.removeDevice(tablet.deviceId);
+    expect((await alexPhone.store.state())!.epoch).toBe(2);
+    expect((await alexPhone.sharing.myDevices()).map((d) => d.id)).not.toContain(tablet.deviceId);
+
+    // Sam takes the new key from the envelope Alex's phone sealed and signed.
+    await sam.sharing.sync();
+    expect((await sam.store.state())!.epoch).toBe(2);
+    await sam.milestones.create(date('After the removal'));
+    await sam.sharing.sync();
+    await alexPhone.sharing.sync();
+    expect((await alexPhone.milestones.list()).map((m) => m.title)).toContain('After the removal');
+
+    // The tablet learns it was removed, goes solo and keeps what it had.
+    await expect(alexTablet.sharing.sync()).rejects.toMatchObject({ reason: 'removed' });
+    expect(await alexTablet.sharing.status()).toBe('off');
+    expect((await alexTablet.milestones.list()).map((m) => m.title)).toContain(
+      'Before the removal',
+    );
+
+    // Read as the database owner: the new record is under epoch 2, and the tablet's key
+    // (epoch 1) can't decrypt it. The new key can.
+    const row = psql(
+      `select record_id || ' ' || version || ' ' || encode(nonce, 'base64') || ' ' || encode(ciphertext, 'base64')
+       from records where space_id = '${space}' and epoch = 2 and record_type = 'milestone'`,
+    ).replace(/\n/g, '');
+    const [recordId, recordVersion, nonce, ciphertext] = row.split(' ');
+    const address = {
+      spaceId: space,
+      recordType: 'milestone',
+      recordId,
+      epoch: 2,
+      version: recordVersion,
+      deleted: false,
+    };
+    const sealed = { nonce: fromBase64(nonce), ciphertext: fromBase64(ciphertext) };
+    const tabletKey = fromBase64(
+      (await alexTablet.secrets.get(`space.${space}.1`)) ?? toBase64(new Uint8Array(32)),
+    );
+    expect(() => crypto.decryptRecord(tabletKey, address, sealed)).toThrow();
+    const newKey = fromBase64((await sam.secrets.get(`space.${space}.2`))!);
+    expect(JSON.parse(crypto.decryptRecord(newKey, address, sealed)).data.title).toBe(
+      'After the removal',
+    );
+
+    // A device added after the removal reads history too (the invite carries every key).
+    const alexNewPhone = await phone();
+    await alexNewPhone.profiles.save(profile({}));
+    await join(alexPhone, alexNewPhone, 'Alex', true);
+    expect((await alexNewPhone.milestones.list()).map((m) => m.title).sort()).toEqual([
+      'After the removal',
+      'Before the removal',
+    ]);
+
+    // A removal of mine whose reply was lost while another device's removal won must not
+    // mark my target removed: only a key this device created proves it went through.
+    const samTablet = await phone();
+    await samTablet.profiles.save(profile({}));
+    await join(sam, samTablet, 'Sam', true);
+    await alexPhone.sharing.sync();
+    const newPhone = await alexNewPhone.session.connect();
+    await alexPhone.secrets.set(
+      'sharing.rotation',
+      JSON.stringify({ from: 2, target: newPhone.deviceId, key: toBase64(crypto.newSpaceKey()) }),
+    );
+    await sam.sharing.removeDevice((await samTablet.session.connect()).deviceId);
+    await alexPhone.sharing.sync();
+    expect((await alexPhone.store.state())!.epoch).toBe(3);
+    expect(await alexPhone.secrets.get('sharing.rotation')).toBeNull();
+    expect(
+      (await alexPhone.store.devices()).find((d) => d.id === newPhone.deviceId)?.revokedAt,
+    ).toBeNull();
+
+    // A key planted by the server and signed by the removed tablet is never adopted.
+    const samDevice = await sam.session.connect();
+    const planted = crypto.sealSpaceKey(crypto.newSpaceKey(), samDevice.keys.boxPublicKey);
+    const tabletSignature = crypto.sign(
+      envelopeMessage(space, 4, samDevice.deviceId, planted),
+      tablet.keys,
+    );
+    psql(`update spaces set epoch = 4 where id = '${space}';
+      insert into key_envelopes (space_id, epoch, device_id, sealed, signature, signer_device_id)
+      values ('${space}', 4, '${samDevice.deviceId}', decode('${toBase64(planted)}', 'base64'),
+              decode('${toBase64(tabletSignature)}', 'base64'), '${tablet.deviceId}');`);
+    await expect(sam.sharing.sync()).rejects.toMatchObject({ code: 'newKeyNotTrusted' });
+    expect((await sam.store.state())!.epoch).toBe(3);
   });
 
   it('cleans up', async () => {

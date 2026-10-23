@@ -11,7 +11,7 @@ import { Share } from '@capacitor/share';
 import { IonContent, IonIcon, IonSpinner } from '@ionic/angular';
 
 import type { StartOfRelationship } from '../../core/sync/sync-store';
-import type { InviteProgress, JoinProgress } from '../../core/sync/sharing';
+import type { InviteProgress, JoinProgress, MyDevice } from '../../core/sync/sharing';
 import { I18nService } from '../../core/services/i18n.service';
 import { NoticeService } from '../../core/services/notice.service';
 import { DataExportService } from '../../core/services/data-export.service';
@@ -351,6 +351,33 @@ const POLL_MS = 3000;
               </div>
               <p class="hm-section__hint" role="status">{{ syncStatus() }}</p>
             </section>
+            @if (myDevices().length > 0) {
+              <section class="hm-section" aria-labelledby="devices-heading">
+                <h2 id="devices-heading" class="hm-section__title">
+                  {{ 'sharing.devicesTitle' | t }}
+                </h2>
+                <ul class="devices">
+                  @for (d of myDevices(); track d.id) {
+                    <li class="device">
+                      <span class="device__name">{{ deviceLabel(d) }}</span>
+                      @if (!d.thisDevice) {
+                        <button
+                          type="button"
+                          class="hm-btn hm-btn--quiet danger"
+                          [disabled]="busy()"
+                          [attr.aria-label]="
+                            'sharing.removeDeviceLabel' | t: { device: deviceLabel(d) }
+                          "
+                          (click)="removeDevice(d)"
+                        >
+                          {{ 'sharing.removeDevice' | t }}
+                        </button>
+                      }
+                    </li>
+                  }
+                </ul>
+              </section>
+            }
             <section class="hm-section danger-zone" aria-labelledby="leave-heading">
               <h2 id="leave-heading" class="hm-section__title">{{ 'sharing.leaveTitle' | t }}</h2>
               <p class="hm-section__hint">{{ 'sharing.leaveHint' | t }}</p>
@@ -470,6 +497,19 @@ const POLL_MS = 3000;
       gap: var(--hm-space-2);
       color: var(--hm-ink-muted);
     }
+    .devices {
+      list-style: none;
+      margin: var(--hm-space-3) 0 0;
+      padding: 0;
+    }
+    .device {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--hm-space-3);
+      min-height: 48px;
+      border-bottom: var(--hm-hairline);
+    }
     .danger-zone {
       margin-top: var(--hm-space-6);
       padding-top: var(--hm-space-6);
@@ -496,6 +536,7 @@ export class SharingPage implements OnInit, OnDestroy {
   protected readonly selfName = signal('');
   protected readonly codeText = signal('');
   protected readonly joinSafety = signal<string | null>(null);
+  protected readonly myDevices = signal<MyDevice[]>([]);
   protected readonly partnerName = computed(() => this.store.profile()?.displayName ?? null);
   protected readonly inviteView = computed(() => {
     const v = this.view();
@@ -588,7 +629,7 @@ export class SharingPage implements OnInit, OnDestroy {
     const forMe = this.inviteView()?.forMe ?? false;
     await this.run(async () => {
       await this.sharing.approveInvite();
-      this.view.set({ kind: 'member' });
+      this.showMember();
       this.tell(forMe ? 'sharing.addDeviceApproved' : 'sharing.approved');
     });
   }
@@ -596,7 +637,7 @@ export class SharingPage implements OnInit, OnDestroy {
   protected async decline(): Promise<void> {
     await this.run(async () => {
       await this.sharing.declineInvite();
-      this.view.set({ kind: 'member' });
+      this.showMember();
       this.tell('sharing.declined');
     });
   }
@@ -621,8 +662,45 @@ export class SharingPage implements OnInit, OnDestroy {
         this.view.set({ kind: 'off' });
         return;
       }
-      this.syncStatus.set(this.t.t(report.deferred ? 'sharing.syncDeferred' : 'sharing.synced'));
+      this.syncStatus.set(
+        this.t.t(
+          report.awaitingKey
+            ? 'sharing.syncAwaitingKey'
+            : report.deferred
+              ? 'sharing.syncDeferred'
+              : 'sharing.synced',
+        ),
+      );
     });
+  }
+
+  protected deviceLabel(device: MyDevice): string {
+    if (device.thisDevice) return this.t.t('sharing.thisDevice');
+    return this.t.t(device.platform === 'ios' ? 'sharing.otherIos' : 'sharing.otherAndroid');
+  }
+
+  /** §7.4, own devices only on screen (§7.7). */
+  protected async removeDevice(device: MyDevice): Promise<void> {
+    const label = this.deviceLabel(device);
+    const confirmed = await this.confirm.confirmDestructive(
+      this.t.t('sharing.removeDeviceTitle', { device: label }),
+      this.t.t('sharing.removeDeviceBody'),
+      this.t.t('sharing.removeDevice'),
+    );
+    if (!confirmed) return;
+    await this.run(async () => {
+      await this.sharing.removeDevice(device.id);
+      this.showMember();
+      this.tell('sharing.deviceRemoved');
+    });
+  }
+
+  private showMember(): void {
+    this.view.set({ kind: 'member' });
+    void this.sharing
+      .myDevices()
+      .then((devices) => this.myDevices.set(devices))
+      .catch(() => this.myDevices.set([]));
   }
 
   protected async leave(): Promise<void> {
@@ -692,7 +770,7 @@ export class SharingPage implements OnInit, OnDestroy {
       if (status === 'memberWithoutKey') return this.view.set({ kind: 'noKey' });
       if (status === 'joining') return this.showJoinProgress(await this.sharing.checkJoin());
       const invite = await this.sharing.currentInvite();
-      if (!invite) return this.view.set({ kind: 'member' });
+      if (!invite) return this.showMember();
       this.view.set({ kind: 'invite', ...invite, progress: await this.sharing.checkInvite() });
       this.afterInviteCheck();
     } catch (error) {
@@ -727,7 +805,7 @@ export class SharingPage implements OnInit, OnDestroy {
     const view = this.view();
     if (view.kind === 'invite' && view.progress.state === 'gone') {
       this.error.set(this.t.t('sharing.inviteGone'));
-      this.view.set({ kind: 'member' });
+      this.showMember();
     }
   }
 
@@ -735,7 +813,7 @@ export class SharingPage implements OnInit, OnDestroy {
     if (progress.state === 'waiting') this.joinSafety.set(progress.safetyCode);
     if (progress.state === 'joined') {
       const name = this.partnerName();
-      this.view.set({ kind: 'member' });
+      this.showMember();
       if (progress.ownDevice) this.tell('sharing.joinedOwnDevice');
       else
         void this.notice.show(
@@ -787,6 +865,10 @@ export function errorKey(error: unknown): MessageKey {
       return 'sharing.error.alreadyInSpace';
     case 'network':
       return 'sharing.error.network';
+    case 'newKeyNotTrusted':
+      return 'sharing.error.newKey';
+    case 'inviteMismatch':
+      return 'sharing.error.inviteUnavailable';
     default:
       return error instanceof TypeError ? 'sharing.error.network' : 'sharing.error.generic';
   }

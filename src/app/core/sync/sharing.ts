@@ -5,6 +5,7 @@ import type { RelationshipRepository } from '../persistence/relationship.reposit
 import type { SecureKeyStore } from '../platform/secure-key-store';
 import type { ConnectedDevice, DeviceSession } from './device-session';
 import { fromBase64, toBase64 } from './encoding';
+import { decodeInviteBundle, encodeInviteBundle } from './invite-bundle';
 import { formatInviteCode, parseInviteCode } from './invite-code';
 import { SpaceApi, SpaceApiError, type Membership } from './space-api';
 import { envelopeMessage, MissingSpaceKeyError, SpaceKeys } from './space-keys';
@@ -27,7 +28,10 @@ export type SharingErrorCode =
   | 'alreadySharing'
   | 'notSharing'
   | 'noInvite'
-  | 'joinInProgress';
+  | 'joinInProgress'
+  | 'inviteMismatch'
+  | 'newKeyNotTrusted'
+  | 'unknownDevice';
 
 /**
  * The server says this device no longer belongs to the space: the partner left (the space
@@ -36,10 +40,18 @@ export type SharingErrorCode =
  */
 export class SharingEndedError extends Error {
   readonly code = 'sharingEnded';
-  constructor() {
+  /** 'dissolved': the space was left; 'removed': this device was removed from it. */
+  constructor(readonly reason: 'dissolved' | 'removed' = 'dissolved') {
     super('Sharing has ended.');
     this.name = 'SharingEndedError';
   }
+}
+
+/** One of my devices in the space (from the end-to-end device list). */
+export interface MyDevice {
+  id: string;
+  platform: string;
+  thisDevice: boolean;
 }
 
 export class SharingError extends Error {
@@ -80,7 +92,15 @@ const NAMES = {
   pendingKey: 'sharing.pendingKey',
   invite: 'sharing.invite',
   join: 'sharing.join',
+  rotation: 'sharing.rotation',
 } as const;
+
+/** A removal in progress: the new key is stored here before the server sees it. */
+interface PendingRotation {
+  from: number;
+  target: string;
+  key: string;
+}
 
 interface PendingInvite {
   inviteId: string;
@@ -101,6 +121,8 @@ interface PendingJoin {
   claimedAs?: string;
   /** Set once approved: the person this device now belongs to. */
   person?: string;
+  /** Set once approved: this device joined as one of an existing person's devices. */
+  ownDevice?: boolean;
   /** Set once the space key is stored here. */
   space?: { spaceId: string; epoch: number };
   /** The joiner's own start, captured before the space's profile replaces it. */
@@ -172,13 +194,24 @@ export class Sharing {
     if (previous) await api.declineInvite(previous.inviteId).catch(() => undefined);
 
     await this.loadKeys(api);
-    const key = this.keys.key(state.epoch);
-    if (!key) throw new MissingSpaceKeyError();
-    const secret = this.deps.crypto.newInviteSecret();
-    const inviteId = await api.createInvite(this.deps.crypto.wrapForInvite(key, secret));
+    if (!this.keys.key(state.epoch)) throw new MissingSpaceKeyError();
     const forPerson = options.forMe
       ? (await this.deps.profiles.persons()).find((p) => p.isSelf)?.id
       : undefined;
+    // Every epoch's key, so a device joining after a rotation can read history (§7.5),
+    // and the person a device of mine is to become, both out of the server's reach.
+    const keys = new Map<number, Uint8Array>();
+    for (let epoch = 1; epoch <= state.epoch; epoch++) {
+      const key = this.keys.key(epoch);
+      if (key) keys.set(epoch, key);
+    }
+    const secret = this.deps.crypto.newInviteSecret();
+    const inviteId = await api.createInvite(
+      this.deps.crypto.wrapForInvite(
+        encodeInviteBundle({ keys, forPerson: forPerson ?? null }),
+        secret,
+      ),
+    );
     await this.write<PendingInvite>(NAMES.invite, {
       inviteId,
       secret: toBase64(secret),
@@ -303,16 +336,23 @@ export class Sharing {
         }
         throw error;
       }
-      const key = this.deps.crypto.unwrapInvite(accepted.envelope, fromBase64(pending.secret));
-      await this.keys.save(accepted.spaceId, accepted.epoch, key);
+      const bundle = decodeInviteBundle(
+        this.deps.crypto.unwrapInvite(accepted.envelope, fromBase64(pending.secret)),
+        accepted.epoch,
+      );
+      // The person comes from the server; accept it only if the sealed bundle agrees.
+      const expected = bundle.forPerson ?? pending.claimedAs;
+      if (expected && accepted.personId !== expected) {
+        await this.deps.secrets.remove(NAMES.join);
+        throw new SharingError('inviteMismatch');
+      }
+      for (const [epoch, key] of bundle.keys) await this.keys.save(accepted.spaceId, epoch, key);
       pending.space = { spaceId: accepted.spaceId, epoch: accepted.epoch };
       pending.person = accepted.personId;
+      pending.ownDevice = bundle.forPerson !== null;
       await this.write(NAMES.join, pending);
     }
-    const ownDevice =
-      pending.person !== undefined &&
-      pending.claimedAs !== undefined &&
-      pending.person !== pending.claimedAs;
+    const ownDevice = pending.ownDevice === true;
 
     const { spaceId, epoch } = pending.space;
     await this.keys.load(spaceId, epoch);
@@ -327,6 +367,7 @@ export class Sharing {
         device.keys,
       ),
     );
+    await this.storeOlderEnvelopes(api, device, spaceId, epoch);
 
     if (ownDevice) {
       // One of my devices (§7.6): become that person, adopt the space's profile without
@@ -384,9 +425,176 @@ export class Sharing {
     // Before anything else (a member without its key must still learn this): after a
     // dissolve, pulls just return nothing, so the end must be asked for explicitly.
     const membership = await this.checkStillMember(api);
+    try {
+      await this.adoptNewEpochs(api, membership);
+    } catch (error) {
+      if (!(error instanceof SharingError && error.code === 'newKeyNotTrusted')) throw error;
+      // The device that rotated may not be on this device's list yet: pull what the keys
+      // in hand can read (it stops at the new epoch's records), then try once more.
+      await this.loadKeys(api);
+      await this.engine(device.client).sync({ pullOnly: true });
+      await this.adoptNewEpochs(api, membership);
+    }
     await this.loadKeys(api);
     await this.writeOwnDevice(device, membership?.personId ?? null);
+    await this.repairEnvelopes(api, device);
     return this.engine(device.client).sync();
+  }
+
+  /** My devices in the space, from the end-to-end device list (§7.7: only mine on screen). */
+  async myDevices(): Promise<MyDevice[]> {
+    const self = (await this.deps.profiles.persons()).find((p) => p.isSelf)?.id;
+    const thisDevice = await this.deps.session.storedDeviceId();
+    return (await this.deps.store.devices())
+      .filter((d) => !d.revokedAt && d.personId !== null && d.personId === self)
+      .map((d) => ({ id: d.id, platform: d.platform, thisDevice: d.id === thisDevice }))
+      .sort((a, b) => Number(b.thisDevice) - Number(a.thisDevice));
+  }
+
+  /**
+   * Removes one of my other devices (§7.4): a new space key, stored here first, sealed and
+   * signed to every other listed device, then one all-or-nothing server call. A crash
+   * after that call is finished by the next sync.
+   */
+  async removeDevice(targetId: string): Promise<void> {
+    if (!(await this.deps.store.state())) throw new SharingError('notSharing');
+    const device = await this.deps.session.connect();
+    const api = new SpaceApi(device.client);
+    await this.adoptNewEpochs(api, await this.checkStillMember(api));
+    const state = (await this.deps.store.state())!;
+    const listed = (await this.deps.store.devices()).filter((d) => !d.revokedAt);
+    if (targetId === device.deviceId || !listed.some((d) => d.id === targetId)) {
+      throw new SharingError('unknownDevice');
+    }
+
+    let pending = await this.read<PendingRotation>(NAMES.rotation);
+    if (!pending || pending.from !== state.epoch || pending.target !== targetId) {
+      pending = {
+        from: state.epoch,
+        target: targetId,
+        key: toBase64(this.deps.crypto.newSpaceKey()),
+      };
+      await this.write(NAMES.rotation, pending);
+    }
+    const key = fromBase64(pending.key);
+    const next = state.epoch + 1;
+    const recipients = listed
+      .filter((d) => d.id !== targetId)
+      .map((d) => ({ id: d.id, box: fromBase64(d.boxPublicKey) }));
+    if (!recipients.some((r) => r.id === device.deviceId)) {
+      recipients.push({ id: device.deviceId, box: device.keys.boxPublicKey });
+    }
+    const envelopes = recipients.map((r) => {
+      const sealed = this.deps.crypto.sealSpaceKey(key, r.box);
+      const signature = this.deps.crypto.sign(
+        envelopeMessage(state.spaceId, next, r.id, sealed),
+        device.keys,
+      );
+      return { deviceId: r.id, sealed, signature };
+    });
+    try {
+      await api.rotate(targetId, state.epoch, envelopes);
+    } catch (error) {
+      if (error instanceof SpaceApiError && error.code === 'epochChanged') {
+        await this.deps.secrets.remove(NAMES.rotation);
+      }
+      throw error;
+    }
+    await this.finishRotation(state.spaceId, next, key, targetId);
+    await this.loadKeys(api);
+    await this.engine(device.client).sync();
+  }
+
+  private async finishRotation(
+    spaceId: string,
+    epoch: number,
+    key: Uint8Array,
+    removed: string,
+  ): Promise<void> {
+    await this.keys.save(spaceId, epoch, key);
+    await this.deps.store.setEpoch(epoch);
+    await this.deps.store.markDeviceRemoved(removed);
+    await this.deps.secrets.remove(NAMES.rotation);
+  }
+
+  /**
+   * After a rotation elsewhere (or here, interrupted): take every newer epoch's key from
+   * this device's envelope, trusted as in §7.3. Without a trusted key, nothing is written.
+   */
+  private async adoptNewEpochs(api: SpaceApi, membership: Membership | null): Promise<void> {
+    const state = await this.deps.store.state();
+    if (!state) return;
+    const pending = await this.read<PendingRotation>(NAMES.rotation);
+    if (pending && pending.from < state.epoch) {
+      // Left over from a removal that already finished here.
+      await this.deps.secrets.remove(NAMES.rotation);
+    }
+    if (!membership?.epoch || membership.epoch <= state.epoch) return;
+    const adopted = new Map<number, Uint8Array>();
+    for (let epoch = state.epoch + 1; epoch <= membership.epoch; epoch++) {
+      const key = await this.ownKey(api, state.spaceId, epoch);
+      if (!key) throw new SharingError('newKeyNotTrusted');
+      await this.keys.save(state.spaceId, epoch, key);
+      adopted.set(epoch, key);
+    }
+    await this.deps.store.setEpoch(membership.epoch);
+    if (pending && pending.from === state.epoch) {
+      // This device's own removal went through before it could finish locally, but only
+      // if the next epoch's key is the one it created: another device may have rotated
+      // first, and then the target was never removed.
+      const next = adopted.get(pending.from + 1);
+      if (next && toBase64(next) === pending.key)
+        await this.deps.store.markDeviceRemoved(pending.target);
+      await this.deps.secrets.remove(NAMES.rotation);
+    }
+  }
+
+  /**
+   * Repair (§7.4): seal the current key to listed devices that have no envelope for this
+   * epoch. Best effort: a failure here never stops the sync.
+   */
+  private async repairEnvelopes(api: SpaceApi, device: ConnectedDevice): Promise<void> {
+    try {
+      const state = await this.deps.store.state();
+      const key = state ? this.keys.key(state.epoch) : null;
+      if (!state || !key) return;
+      const missing = new Set(await api.devicesMissingEnvelope());
+      if (missing.size === 0) return;
+      const envelopes = (await this.deps.store.devices())
+        .filter((d) => !d.revokedAt && missing.has(d.id))
+        .map((d) => {
+          const sealed = this.deps.crypto.sealSpaceKey(key, fromBase64(d.boxPublicKey));
+          const signature = this.deps.crypto.sign(
+            envelopeMessage(state.spaceId, state.epoch, d.id, sealed),
+            device.keys,
+          );
+          return { deviceId: d.id, sealed, signature };
+        });
+      if (envelopes.length > 0) await api.sealMissing(state.epoch, envelopes);
+    } catch {
+      // Retried on the next sync.
+    }
+  }
+
+  /** After joining: this device's own envelopes for the epochs before the current one. */
+  private async storeOlderEnvelopes(
+    api: SpaceApi,
+    device: ConnectedDevice,
+    spaceId: string,
+    current: number,
+  ): Promise<void> {
+    const older: { epoch: number; sealed: Uint8Array; signature: Uint8Array }[] = [];
+    for (let epoch = 1; epoch < current; epoch++) {
+      const key = this.keys.key(epoch);
+      if (!key) continue;
+      const sealed = this.deps.crypto.sealSpaceKey(key, device.keys.boxPublicKey);
+      const signature = this.deps.crypto.sign(
+        envelopeMessage(spaceId, epoch, device.deviceId, sealed),
+        device.keys,
+      );
+      older.push({ epoch, sealed, signature });
+    }
+    await api.storeOwnEnvelopes(older);
   }
 
   /**
@@ -425,7 +633,7 @@ export class Sharing {
     if (!membership) return null;
     if (membership.revoked || membership.spaceId !== state.spaceId) {
       await this.stopSharingHere();
-      throw new SharingEndedError();
+      throw new SharingEndedError(membership.revoked ? 'removed' : 'dissolved');
     }
     return membership;
   }
@@ -457,12 +665,22 @@ export class Sharing {
    */
   private async ownKey(api: SpaceApi, spaceId: string, epoch: number): Promise<Uint8Array | null> {
     const device = await this.deps.session.connect();
+    const listed = await this.deps.store.devices();
     for (const envelope of await api.ownEnvelopes()) {
       if (envelope.spaceId !== spaceId || envelope.epoch !== epoch) continue;
       if (envelope.deviceId !== device.deviceId || !envelope.signature) continue;
+      // Signed by this device, or by a device on the end-to-end list (§7.3).
+      const signer =
+        envelope.signerDeviceId === null || envelope.signerDeviceId === device.deviceId
+          ? device.keys.signPublicKey
+          : (() => {
+              // A removed device no longer vouches for keys (§7.3).
+              const known = listed.find((d) => d.id === envelope.signerDeviceId && !d.revokedAt);
+              return known ? fromBase64(known.signPublicKey) : null;
+            })();
+      if (!signer) continue;
       const message = envelopeMessage(spaceId, epoch, device.deviceId, envelope.sealed);
-      if (!this.deps.crypto.verify(message, envelope.signature, device.keys.signPublicKey))
-        continue;
+      if (!this.deps.crypto.verify(message, envelope.signature, signer)) continue;
       try {
         return this.deps.crypto.openSealedSpaceKey(envelope.sealed, device.keys);
       } catch {

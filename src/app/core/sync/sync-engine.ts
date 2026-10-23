@@ -39,6 +39,8 @@ export interface SyncReport {
    * It and everything after it wait until the clocks agree; nothing is skipped.
    */
   deferred: boolean;
+  /** True when pulling stopped at a record under an epoch whose key isn't here yet. */
+  awaitingKey: boolean;
   /** Record types that changed locally, so the app can reload and reconcile side effects. */
   changedTypes: SyncedRecordType[];
 }
@@ -112,6 +114,7 @@ export class SyncEngine {
       rejected: 0,
       unsendable: 0,
       deferred: false,
+      awaitingKey: false,
       changedTypes: [],
     };
     const changed = new Set<SyncedRecordType>();
@@ -139,9 +142,17 @@ export class SyncEngine {
     for (;;) {
       const page = await this.transport.pull(spaceId, after, this.pageSize);
       for (const wire of page) {
-        if (HLC_PATTERN.test(wire.version) && isTooFarAhead(wire.version, this.store.nowMs())) {
+        // Under an epoch whose key this device doesn't have yet (a rotation it is still
+        // catching up with): stop before it, like a far-future record, so nothing is skipped.
+        const awaitingKey =
+          !this.keyring.key(wire.epoch) && wire.epoch > this.keyring.currentEpoch();
+        if (
+          awaitingKey ||
+          (HLC_PATTERN.test(wire.version) && isTooFarAhead(wire.version, this.store.nowMs()))
+        ) {
           // Stop before it so nothing is skipped; it is applied once the clocks agree.
-          report.deferred = true;
+          if (awaitingKey) report.awaitingKey = true;
+          else report.deferred = true;
           await this.store.setCursor(cursor);
           return;
         }

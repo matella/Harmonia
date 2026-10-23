@@ -236,7 +236,13 @@ describe.skipIf(!live)('sync over a live local Supabase', () => {
       ).error,
     ).toBeNull();
     expect(
-      (await device.client.rpc('revoke_device', { target: device.deviceId })).error,
+      (
+        await device.client.rpc('rotate', {
+          target: device.deviceId,
+          expected_epoch: 1,
+          envelopes: [],
+        })
+      ).error,
     ).toBeNull();
     await secrets.remove('auth.session');
     await expect(sessionFor(secrets).connect()).rejects.toBeInstanceOf(DeviceLostError);

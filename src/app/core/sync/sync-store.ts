@@ -139,6 +139,29 @@ export class SyncStore {
       : null;
   }
 
+  /** Moves to a newer epoch after a rotation (never back). */
+  async setEpoch(epoch: number): Promise<void> {
+    await this.db.run('UPDATE sync_state SET epoch = ? WHERE id = 1 AND epoch < ?', [epoch, epoch]);
+  }
+
+  /** Marks a device removed in the device list (§7.4), queued for the space. */
+  async markDeviceRemoved(deviceId: string): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const version = await this.journal.stamp(tx);
+      const now = this.clock.now().toString();
+      const open = await tx.query<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM space_devices WHERE id = ? AND revoked_at IS NULL',
+        [deviceId],
+      );
+      if ((open[0]?.n ?? 0) === 0) return; // already removed (or unknown): nothing to send
+      await tx.run(
+        'UPDATE space_devices SET revoked_at = ?, version = ?, updated_at = ? WHERE id = ?',
+        [now, version, now, deviceId],
+      );
+      await this.journal.changed(tx, 'device', deviceId, version);
+    });
+  }
+
   /** Moves the cursor forward (never back). */
   async setCursor(cursor: number): Promise<void> {
     await this.db.run('UPDATE sync_state SET cursor = ? WHERE id = 1 AND cursor < ?', [
@@ -440,10 +463,12 @@ export class SyncStore {
         await tx.query<{
           sign_public_key: string;
           box_public_key: string;
+          person_id: string | null;
           revoked_at: string | null;
-        }>('SELECT sign_public_key, box_public_key, revoked_at FROM space_devices WHERE id = ?', [
-          id,
-        ])
+        }>(
+          'SELECT sign_public_key, box_public_key, person_id, revoked_at FROM space_devices WHERE id = ?',
+          [id],
+        )
       )[0];
       if (
         known &&
@@ -451,6 +476,9 @@ export class SyncStore {
           known.box_public_key !== record.payload['box_public_key'])
       ) {
         throw new RefusedRecordError('changed keys for a known device');
+      }
+      if (known?.person_id && known.person_id !== record.payload['person_id']) {
+        throw new RefusedRecordError('moved a known device to another person');
       }
       if (known?.revoked_at && record.payload['revoked_at'] === null) {
         throw new RefusedRecordError('undoing a device removal');

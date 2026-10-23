@@ -104,6 +104,11 @@ export class DeviceSession {
     return this.connecting;
   }
 
+  /** This device's server ID if it ever registered, without any network request. */
+  storedDeviceId(): Promise<string | null> {
+    return this.secrets.get(NAMES.id);
+  }
+
   /** Forgets the established connection, so the next `connect` checks with the server again. */
   reset(): void {
     this.connecting = null;

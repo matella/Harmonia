@@ -52,13 +52,21 @@ class FakeSharing {
     this.calls.push(`choose:${choice}`);
     return { state: 'joined' };
   }
-  syncResult: 'ended' | { deferred: boolean } = { deferred: false };
-  async syncNow(): Promise<'ended' | { deferred: boolean }> {
+  syncResult: 'ended' | { deferred: boolean; awaitingKey?: boolean } = { deferred: false };
+  async syncNow(): Promise<'ended' | { deferred: boolean; awaitingKey?: boolean }> {
     this.calls.push('sync');
     return this.syncResult;
   }
   async leave(): Promise<void> {
     this.calls.push('leave');
+  }
+  devices: { id: string; platform: string; thisDevice: boolean }[] = [];
+  async myDevices(): Promise<{ id: string; platform: string; thisDevice: boolean }[]> {
+    return this.devices;
+  }
+  async removeDevice(id: string): Promise<void> {
+    this.calls.push(`remove:${id}`);
+    this.devices = this.devices.filter((d) => d.id !== id);
   }
 }
 
@@ -188,6 +196,28 @@ describe('SharingPage', () => {
     await click(fixture, 'Add one of my devices');
     expect(fake.calls).toEqual(['invite:me']);
     expect(el.textContent).toContain('Enter this code on your other device');
+    fixture.destroy();
+  });
+
+  it('lists my devices and removes another one after asking', async () => {
+    fake.view = 'member';
+    fake.devices = [
+      { id: 'me', platform: 'android', thisDevice: true },
+      { id: 'tablet', platform: 'ios', thisDevice: false },
+    ];
+    const { fixture, el } = await render();
+    await settle(fixture);
+    expect(el.textContent).toContain('This device');
+    expect(el.textContent).toContain('Your iPhone or iPad');
+    const removes = [...el.querySelectorAll('button')].filter(
+      (b) => b.textContent?.trim() === 'Remove',
+    );
+    expect(removes).toHaveLength(1); // never this device
+    removes[0].click();
+    await settle(fixture);
+    expect(confirm.asked).toEqual(['Remove Your iPhone or iPad?']);
+    expect(fake.calls).toEqual(['remove:tablet']);
+    expect(el.textContent).not.toContain('Your iPhone or iPad');
     fixture.destroy();
   });
 
