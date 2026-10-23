@@ -360,7 +360,9 @@ const POLL_MS = 3000;
                   @for (d of myDevices(); track d.id) {
                     <li class="device">
                       <span class="device__name">{{ deviceLabel(d) }}</span>
-                      @if (!d.thisDevice) {
+                      @if (d.pendingRemoval) {
+                        <span class="device__status">{{ 'sharing.removalPending' | t }}</span>
+                      } @else if (!d.thisDevice) {
                         <button
                           type="button"
                           class="hm-btn hm-btn--quiet danger"
@@ -509,6 +511,10 @@ const POLL_MS = 3000;
       gap: var(--hm-space-3);
       min-height: 48px;
       border-bottom: var(--hm-hairline);
+    }
+    .device__status {
+      font-size: var(--hm-text-sm);
+      color: var(--hm-ink-muted);
     }
     .danger-zone {
       margin-top: var(--hm-space-6);
@@ -689,9 +695,12 @@ export class SharingPage implements OnInit, OnDestroy {
     );
     if (!confirmed) return;
     await this.run(async () => {
-      await this.sharing.removeDevice(device.id);
-      this.showMember();
-      this.tell('sharing.deviceRemoved');
+      try {
+        await this.sharing.removeDevice(device.id);
+        this.tell('sharing.deviceRemoved');
+      } finally {
+        this.showMember(); // a pending removal stays listed as such
+      }
     });
   }
 
@@ -867,6 +876,8 @@ export function errorKey(error: unknown): MessageKey {
       return 'sharing.error.network';
     case 'newKeyNotTrusted':
       return 'sharing.error.newKey';
+    case 'removalPending':
+      return 'sharing.error.removalPending';
     case 'inviteMismatch':
       return 'sharing.error.inviteUnavailable';
     default:

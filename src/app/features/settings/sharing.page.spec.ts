@@ -60,8 +60,10 @@ class FakeSharing {
   async leave(): Promise<void> {
     this.calls.push('leave');
   }
-  devices: { id: string; platform: string; thisDevice: boolean }[] = [];
-  async myDevices(): Promise<{ id: string; platform: string; thisDevice: boolean }[]> {
+  devices: { id: string; platform: string; thisDevice: boolean; pendingRemoval?: boolean }[] = [];
+  async myDevices(): Promise<
+    { id: string; platform: string; thisDevice: boolean; pendingRemoval?: boolean }[]
+  > {
     return this.devices;
   }
   async removeDevice(id: string): Promise<void> {

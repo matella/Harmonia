@@ -31,7 +31,8 @@ export type SharingErrorCode =
   | 'joinInProgress'
   | 'inviteMismatch'
   | 'newKeyNotTrusted'
-  | 'unknownDevice';
+  | 'unknownDevice'
+  | 'removalPending';
 
 /**
  * The server says this device no longer belongs to the space: the partner left (the space
@@ -52,6 +53,8 @@ export interface MyDevice {
   id: string;
   platform: string;
   thisDevice: boolean;
+  /** Marked removed here; the key change is still to happen (retried on each sync). */
+  pendingRemoval: boolean;
 }
 
 export class SharingError extends Error {
@@ -428,6 +431,10 @@ export class Sharing {
     await this.catchUp(api, device, membership);
     await this.loadKeys(api);
     await this.writeOwnDevice(device, membership?.personId ?? null);
+    if (await this.read<PendingRotation>(NAMES.rotation)) {
+      await this.resumeRemoval(api, device);
+      await this.loadKeys(api);
+    }
     const report = await this.engine(device.client).sync();
     // After the pull, so the device list it seals to is as fresh as this device can know.
     await this.repairEnvelopes(api, device);
@@ -457,9 +464,17 @@ export class Sharing {
   async myDevices(): Promise<MyDevice[]> {
     const self = (await this.deps.profiles.persons()).find((p) => p.isSelf)?.id;
     const thisDevice = await this.deps.session.storedDeviceId();
+    const pending = (await this.read<PendingRotation>(NAMES.rotation))?.target;
     return (await this.deps.store.devices())
-      .filter((d) => !d.revokedAt && d.personId !== null && d.personId === self)
-      .map((d) => ({ id: d.id, platform: d.platform, thisDevice: d.id === thisDevice }))
+      .filter(
+        (d) => (!d.revokedAt || d.id === pending) && d.personId !== null && d.personId === self,
+      )
+      .map((d) => ({
+        id: d.id,
+        platform: d.platform,
+        thisDevice: d.id === thisDevice,
+        pendingRemoval: d.id === pending,
+      }))
       .sort((a, b) => Number(b.thisDevice) - Number(a.thisDevice));
   }
 
@@ -479,25 +494,40 @@ export class Sharing {
     if (targetId === device.deviceId || !known.some((d) => d.id === targetId)) {
       throw new SharingError('unknownDevice');
     }
-    const listed = known.filter((d) => !d.revokedAt);
+    // Recorded first: from here on the removal is resumed on every sync until the server
+    // has rotated, so a device marked removed is never left holding the current key.
+    await this.write<PendingRotation>(NAMES.rotation, {
+      from: state.epoch,
+      target: targetId,
+      key: toBase64(this.deps.crypto.newSpaceKey()),
+    });
     // Tell every device first, under the key they already hold, so none of them trusts a
     // new key signed by the removed device before it learns of the removal (§7.4).
     await this.deps.store.markDeviceRemoved(targetId);
     await this.engine(device.client).sync();
+    if (!(await this.resumeRemoval(api, device))) throw new SharingError('removalPending');
+    await this.loadKeys(api);
+    await this.engine(device.client).sync();
+  }
 
+  /**
+   * Finishes a removal recorded on this device: one all-or-nothing `rotate` call from the
+   * current epoch (§7.4). Returns true when no removal is left pending. If someone else
+   * rotated first, a fresh key is made for the new epoch next time; if the server already
+   * removed the device, there is nothing left to do.
+   */
+  private async resumeRemoval(api: SpaceApi, device: ConnectedDevice): Promise<boolean> {
     let pending = await this.read<PendingRotation>(NAMES.rotation);
-    if (!pending || pending.from !== state.epoch || pending.target !== targetId) {
-      pending = {
-        from: state.epoch,
-        target: targetId,
-        key: toBase64(this.deps.crypto.newSpaceKey()),
-      };
+    const state = await this.deps.store.state();
+    if (!pending || !state) return true;
+    if (pending.from !== state.epoch) {
+      pending = { ...pending, from: state.epoch, key: toBase64(this.deps.crypto.newSpaceKey()) };
       await this.write(NAMES.rotation, pending);
     }
     const key = fromBase64(pending.key);
     const next = state.epoch + 1;
-    const recipients = listed
-      .filter((d) => d.id !== targetId)
+    const recipients = (await this.deps.store.devices())
+      .filter((d) => !d.revokedAt && d.id !== pending!.target)
       .map((d) => ({ id: d.id, box: fromBase64(d.boxPublicKey) }));
     if (!recipients.some((r) => r.id === device.deviceId)) {
       recipients.push({ id: device.deviceId, box: device.keys.boxPublicKey });
@@ -511,16 +541,17 @@ export class Sharing {
       return { deviceId: r.id, sealed, signature };
     });
     try {
-      await api.rotate(targetId, state.epoch, envelopes);
+      await api.rotate(pending.target, state.epoch, envelopes);
     } catch (error) {
-      if (error instanceof SpaceApiError && error.code === 'epochChanged') {
+      if (error instanceof SpaceApiError && error.code === 'notAllowed') {
+        // The server no longer has that device in the space: removed already.
         await this.deps.secrets.remove(NAMES.rotation);
+        return true;
       }
-      throw error;
+      return false; // offline, or someone rotated first: tried again on the next sync
     }
-    await this.finishRotation(state.spaceId, next, key, targetId);
-    await this.loadKeys(api);
-    await this.engine(device.client).sync();
+    await this.finishRotation(state.spaceId, next, key, pending.target);
+    return true;
   }
 
   private async finishRotation(
@@ -543,10 +574,6 @@ export class Sharing {
     const state = await this.deps.store.state();
     if (!state) return;
     const pending = await this.read<PendingRotation>(NAMES.rotation);
-    if (pending && pending.from < state.epoch) {
-      // Left over from a removal that already finished here.
-      await this.deps.secrets.remove(NAMES.rotation);
-    }
     if (!membership?.epoch || membership.epoch <= state.epoch) return;
     const adopted = new Map<number, Uint8Array>();
     for (let epoch = state.epoch + 1; epoch <= membership.epoch; epoch++) {
@@ -560,10 +587,9 @@ export class Sharing {
       // This device's own removal went through before it could finish locally, but only
       // if the next epoch's key is the one it created: another device may have rotated
       // first, and then the target was never removed.
+      // Otherwise the removal stays pending and is retried from the new epoch.
       const next = adopted.get(pending.from + 1);
-      if (next && toBase64(next) === pending.key)
-        await this.deps.store.markDeviceRemoved(pending.target);
-      await this.deps.secrets.remove(NAMES.rotation);
+      if (next && toBase64(next) === pending.key) await this.deps.secrets.remove(NAMES.rotation);
     }
   }
 

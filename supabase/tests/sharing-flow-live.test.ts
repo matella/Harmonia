@@ -471,8 +471,9 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
       'Before the removal',
     ]);
 
-    // A removal of mine whose reply was lost while another device's removal won must not
-    // mark my target removed: only a key this device created proves it went through.
+    // A removal of mine interrupted while another device's removal won is not taken as
+    // done (only a key this device created proves that), and it is not dropped either:
+    // it is finished from the new epoch.
     const samTablet = await phone();
     await samTablet.profiles.save(profile({}));
     await join(sam, samTablet, 'Sam', true);
@@ -484,24 +485,59 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
     );
     await sam.sharing.removeDevice((await samTablet.session.connect()).deviceId);
     await alexPhone.sharing.sync();
-    expect((await alexPhone.store.state())!.epoch).toBe(3);
+    expect((await alexPhone.store.state())!.epoch).toBe(4); // Sam's 3, then Alex's own 4
     expect(await alexPhone.secrets.get('sharing.rotation')).toBeNull();
     expect(
       (await alexPhone.store.devices()).find((d) => d.id === newPhone.deviceId)?.revokedAt,
-    ).toBeNull();
+    ).not.toBeNull();
 
     // A key planted by the server and signed by the removed tablet is never adopted.
     const planted = crypto.sealSpaceKey(crypto.newSpaceKey(), samDevice.keys.boxPublicKey);
     const tabletSignature = crypto.sign(
-      envelopeMessage(space, 4, samDevice.deviceId, planted),
+      envelopeMessage(space, 5, samDevice.deviceId, planted),
       tablet.keys,
     );
-    psql(`update spaces set epoch = 4 where id = '${space}';
+    psql(`update spaces set epoch = 5 where id = '${space}';
       insert into key_envelopes (space_id, epoch, device_id, sealed, signature, signer_device_id)
-      values ('${space}', 4, '${samDevice.deviceId}', decode('${toBase64(planted)}', 'base64'),
+      values ('${space}', 5, '${samDevice.deviceId}', decode('${toBase64(planted)}', 'base64'),
               decode('${toBase64(tabletSignature)}', 'base64'), '${tablet.deviceId}');`);
     await expect(sam.sharing.sync()).rejects.toMatchObject({ code: 'newKeyNotTrusted' });
     expect((await sam.store.state())!.epoch).toBe(3);
+  });
+
+  it('resumes a removal whose key change failed, and shows it as pending meanwhile', async () => {
+    const alexPhone = await phone();
+    const alexTablet = await phone();
+    for (const p of [alexPhone, alexTablet]) await p.profiles.save(profile({}));
+    await alexPhone.sharing.startSharing('Alex');
+    const code = await alexPhone.sharing.createInvite({ forMe: true });
+    await alexTablet.sharing.claim(code, 'Alex');
+    await alexPhone.sharing.approveInvite();
+    expect((await alexTablet.sharing.checkJoin()).state).toBe('joined');
+    await alexPhone.sharing.sync();
+    const tablet = await alexTablet.session.connect();
+
+    // The server can't rotate for a moment (as if offline right after the removal record).
+    psql('alter function public.rotate(uuid, integer, jsonb) rename to rotate_paused;');
+    try {
+      await expect(alexPhone.sharing.removeDevice(tablet.deviceId)).rejects.toMatchObject({
+        code: 'removalPending',
+      });
+      expect(await alexPhone.sharing.myDevices()).toEqual([
+        expect.objectContaining({ thisDevice: true, pendingRemoval: false }),
+        expect.objectContaining({ id: tablet.deviceId, pendingRemoval: true }),
+      ]);
+      expect((await alexPhone.store.state())!.epoch).toBe(1);
+    } finally {
+      psql('alter function public.rotate_paused(uuid, integer, jsonb) rename to rotate;');
+    }
+
+    // The next sync finishes it: new epoch, the tablet is out and learns it.
+    await alexPhone.sharing.sync();
+    expect((await alexPhone.store.state())!.epoch).toBe(2);
+    expect((await alexPhone.sharing.myDevices()).map((d) => d.id)).not.toContain(tablet.deviceId);
+    expect(await alexPhone.secrets.get('sharing.rotation')).toBeNull();
+    await expect(alexTablet.sharing.sync()).rejects.toMatchObject({ reason: 'removed' });
   });
 
   it('cleans up', async () => {
