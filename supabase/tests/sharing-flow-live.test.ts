@@ -527,7 +527,9 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
       );
 
     // The server can't rotate for a moment (as if offline right after the removal record).
-    psql('alter function public.rotate(uuid, integer, jsonb) rename to rotate_paused;');
+    psql(
+      'alter function public.rotate(uuid, integer, jsonb, jsonb, bytea, bytea) rename to rotate_paused;',
+    );
     try {
       await expect(alexPhone.sharing.removeDevice(tablet.deviceId)).rejects.toMatchObject({
         code: 'removalPending',
@@ -549,7 +551,9 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
         code: 'removalPending',
       });
     } finally {
-      psql('alter function public.rotate_paused(uuid, integer, jsonb) rename to rotate;');
+      psql(
+        'alter function public.rotate_paused(uuid, integer, jsonb, jsonb, bytea, bytea) rename to rotate;',
+      );
     }
 
     // The next sync finishes it: new epoch, the tablet is out and learns it.
@@ -612,6 +616,184 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
     const soloSpace = (await solo.store.state())!.spaceId;
     await solo.sharing.removeThisDevice();
     expect(psql(`select count(*) from spaces where id = '${soloSpace}'`)).toBe('0');
+  });
+
+  it('recovers a lost phone with the recovery key, and replaces the key afterwards', async () => {
+    type Phone = Awaited<ReturnType<typeof phone>>;
+    const setUpRecovery = async (p: Phone) => {
+      expect(await p.sharing.recoveryStatus()).toBe('missing');
+      const key = await p.sharing.createRecoveryKey();
+      const [a, b] = key.ask;
+      expect(await p.sharing.confirmRecoveryKey([key.groups[a], key.groups[b]])).toBe(true);
+      expect(await p.sharing.recoveryStatus()).toBe('set');
+      return key.display;
+    };
+    const fresh = async () => {
+      const p = await phone();
+      await p.profiles.save(profile({}));
+      return p;
+    };
+    const titles = async (p: Phone) => (await p.milestones.list()).map((m) => m.title).sort();
+
+    const lost = await fresh();
+    const sam = await fresh();
+    await lost.milestones.create(date('Before the loss'));
+    await lost.sharing.startSharing('Alex');
+    const alexKey = await setUpRecovery(lost);
+    const code = await lost.sharing.createInvite();
+    await sam.sharing.claim(code, 'Sam');
+    await lost.sharing.approveInvite();
+    let progress = await sam.sharing.checkJoin();
+    if (progress.state === 'chooseStart') progress = await sam.sharing.chooseStart('space');
+    expect(progress.state).toBe('joined');
+    await setUpRecovery(sam);
+    await lost.sharing.sync();
+    const spaceId = (await sam.store.state())!.spaceId;
+    const lostId = (await lost.session.connect()).deviceId;
+
+    // All of Alex's devices are gone: a new phone comes back with the key alone.
+    const alex = await fresh();
+    await alex.milestones.create(date('On the new phone'));
+    await expect(alex.sharing.recover('K7QX2-NOT-A-KEY')).rejects.toMatchObject({
+      code: 'invalidRecoveryKey',
+    });
+    await alex.sharing.recover(alexKey.toLowerCase());
+    expect(await alex.sharing.status()).toBe('member');
+    expect(await alex.sharing.recoveryStatus()).toBe('set');
+    const self = async (p: Phone) => (await p.profiles.persons()).find((x) => x.isSelf)!;
+    expect((await self(alex)).displayName).toBe('Alex');
+    expect((await self(alex)).id).toBe((await self(lost)).id);
+    expect(await titles(alex)).toEqual(['Before the loss', 'On the new phone']);
+    await sam.milestones.create(date('From Sam'));
+    await sam.sharing.sync();
+    await alex.sharing.sync();
+    expect(await titles(alex)).toContain('From Sam');
+    await sam.sharing.sync();
+    expect(await titles(sam)).toContain('On the new phone');
+
+    // The lost phone is removed: the new key is sealed to both recovery keys as well.
+    await alex.sharing.removeDevice(lostId);
+    const epoch = (await alex.store.state())!.epoch;
+    expect(
+      psql(`select count(*) from key_envelopes where space_id = '${spaceId}'
+        and epoch = ${epoch} and recovery_person_id is not null`),
+    ).toBe('2');
+
+    // Replace: the old key recovers nothing any more, the new one everything.
+    const newKey = await (async () => {
+      const key = await alex.sharing.createRecoveryKey();
+      const [a, b] = key.ask;
+      expect(await alex.sharing.confirmRecoveryKey([key.groups[a], key.groups[b]])).toBe(true);
+      return key.display;
+    })();
+    expect((await alex.store.state())!.epoch).toBe(epoch + 1);
+    await sam.sharing.sync();
+    const tablet = await fresh();
+    await expect(tablet.sharing.recover(alexKey)).rejects.toMatchObject({
+      code: 'unknownRecoveryKey',
+    });
+
+    // A newest key the signer didn't sign is refused, and the tablet stays solo.
+    const newest = `space_id = '${spaceId}' and recovery_person_id = '${(await self(alex)).id}'
+      and epoch = (select epoch from spaces where id = '${spaceId}')`;
+    const signer = psql(`select signer_device_id from key_envelopes where ${newest}`);
+    const samId = (await sam.session.connect()).deviceId;
+    psql(`update key_envelopes set signer_device_id = '${samId}' where ${newest}`);
+    await expect(tablet.sharing.recover(newKey)).rejects.toMatchObject({
+      code: 'newKeyNotTrusted',
+    });
+    expect(await tablet.sharing.status()).toBe('off');
+    psql(`update key_envelopes set signer_device_id = '${signer}' where ${newest}`);
+    await tablet.sharing.recover(newKey);
+    expect(await titles(tablet)).toEqual(
+      ['Before the loss', 'From Sam', 'On the new phone'].sort(),
+    );
+
+    // A missing recovery envelope is repaired with a key change that removes nobody.
+    psql(`delete from key_envelopes where space_id = '${spaceId}'
+      and recovery_person_id = '${(await self(sam)).id}'
+      and epoch = (select epoch from spaces where id = '${spaceId}')`);
+    const before = (await sam.store.state())!.epoch;
+    await sam.sharing.sync();
+    expect((await sam.store.state())!.epoch).toBe(before + 1);
+    const samApi = new SpaceApi((await sam.session.connect()).client);
+    expect(await samApi.personsMissingRecoveryEnvelope()).toEqual([]);
+    for (const p of [alex, tablet]) {
+      await p.sharing.sync();
+      expect((await p.store.state())!.epoch).toBe(before + 1);
+    }
+  });
+
+  it('finishes an interrupted recovery key setup on a later sync, even after a lost reply', async () => {
+    type Phone = Awaited<ReturnType<typeof phone>>;
+    const fresh = async () => {
+      const p = await phone();
+      await p.profiles.save(profile({}));
+      return p;
+    };
+    const confirm = async (p: Phone) => {
+      const key = await p.sharing.createRecoveryKey();
+      const [a, b] = key.ask;
+      return {
+        key: key.display,
+        saved: await p.sharing.confirmRecoveryKey([key.groups[a], key.groups[b]]),
+      };
+    };
+    const rename = (from: string, to: string) =>
+      psql(
+        `alter function public.${from}(uuid, integer, jsonb, jsonb, bytea, bytea) rename to ${to};`,
+      );
+
+    // The server can't change keys for a moment: the key is confirmed, but waits.
+    const alex = await fresh();
+    await alex.sharing.startSharing('Alex');
+    rename('rotate', 'rotate_paused');
+    let first: { key: string; saved: boolean };
+    try {
+      first = await confirm(alex);
+    } finally {
+      rename('rotate_paused', 'rotate');
+    }
+    expect(first.saved).toBe(false);
+    expect(await alex.sharing.recoveryStatus()).toBe('saving');
+    await alex.sharing.sync();
+    expect(await alex.sharing.recoveryStatus()).toBe('set');
+    const back = await fresh();
+    await back.sharing.recover(first.key);
+    expect(await back.sharing.status()).toBe('member');
+
+    // Replace, with the reply lost after the server made the change: the next sync still
+    // writes the new public key, so later key changes seal to it.
+    const client = (await alex.session.connect()).client;
+    const rpc = client.rpc.bind(client);
+    client.rpc = ((fn: string, args?: object) =>
+      fn === 'rotate'
+        ? Promise.resolve(rpc(fn, args)).then(() => ({
+            data: null,
+            error: { message: 'TypeError: Failed to fetch', code: '' },
+          }))
+        : rpc(fn, args)) as typeof client.rpc;
+    let second: { key: string; saved: boolean };
+    try {
+      second = await confirm(alex);
+    } finally {
+      client.rpc = rpc;
+    }
+    expect(second.saved).toBe(false);
+    expect(await alex.sharing.recoveryStatus()).toBe('saving');
+    await alex.sharing.sync();
+    expect(await alex.sharing.recoveryStatus()).toBe('set');
+    await back.sharing.sync();
+    // A key change from the other device now seals to the new key: nothing is missing.
+    await back.sharing.removeDevice((await alex.session.connect()).deviceId);
+    const api = new SpaceApi((await back.session.connect()).client);
+    expect(await api.personsMissingRecoveryEnvelope()).toEqual([]);
+    const later = await fresh();
+    await expect(later.sharing.recover(first.key)).rejects.toMatchObject({
+      code: 'unknownRecoveryKey',
+    });
+    await later.sharing.recover(second.key);
+    expect(await later.sharing.status()).toBe('member');
   });
 
   it('cleans up', async () => {

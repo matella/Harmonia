@@ -36,6 +36,19 @@ export function envelopeMessage(
   return message;
 }
 
+/**
+ * What the sealing device signs for a recovery envelope (§8): the same layout as a device
+ * envelope, addressed to the person instead. Device IDs are UUIDs, so this can't collide.
+ */
+export function recoveryEnvelopeMessage(
+  spaceId: string,
+  epoch: number,
+  personId: string,
+  sealed: Uint8Array,
+): Uint8Array {
+  return envelopeMessage(spaceId, epoch, `recovery:${personId}`, sealed);
+}
+
 export class SpaceKeys implements SpaceKeyring {
   private readonly keys = new Map<number, Uint8Array>();
   private epoch = 1;
@@ -66,6 +79,15 @@ export class SpaceKeys implements SpaceKeyring {
   async forget(spaceId: string, epoch: number): Promise<void> {
     for (let e = 1; e <= epoch; e++) await this.secrets.remove(name(spaceId, e));
     this.keys.clear();
+  }
+
+  /**
+   * Empty, with no epoch: until keys are saved, a pull waits at every record instead of
+   * skipping it as older than the current epoch (used when recovering, §8).
+   */
+  reset(): void {
+    this.keys.clear();
+    this.epoch = 0;
   }
 
   currentEpoch(): number {

@@ -195,6 +195,36 @@ export const MIGRATIONS: readonly Migration[] = [
       `ALTER TABLE outbox_v4 RENAME TO outbox`,
     ],
   },
+  {
+    version: 5,
+    name: 'recovery keys (partner sharing phase 4)',
+    statements: [
+      // Each person's recovery public key, from their own end-to-end encrypted record
+      // (docs/PARTNER_SYNC.md §8). Rotations seal every new key to it.
+      `CREATE TABLE space_recovery (
+        id TEXT PRIMARY KEY,
+        public_key TEXT NOT NULL,
+        version TEXT NOT NULL,
+        author_person_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      // The outbox no longer checks record types: the sync schema decides what syncs, and
+      // each new type would otherwise need another table rebuild.
+      `CREATE TABLE outbox_v5 (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        record_type TEXT NOT NULL,
+        record_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (record_type, record_id)
+      )`,
+      `INSERT INTO outbox_v5 (seq, record_type, record_id, version, created_at)
+       SELECT seq, record_type, record_id, version, created_at FROM outbox`,
+      `DROP TABLE outbox`,
+      `ALTER TABLE outbox_v5 RENAME TO outbox`,
+    ],
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

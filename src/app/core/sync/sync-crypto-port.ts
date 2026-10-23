@@ -6,9 +6,11 @@ import type {
   EncryptedRecord,
   RecordAddress,
   RecoveryDerivation,
+  RecoveryKeys,
 } from './sync-crypto';
 
 export type {
+  RecoveryKeys,
   DeviceKeys,
   DevicePublicKeys,
   EncryptedBlob,
@@ -53,6 +55,8 @@ export interface SyncCrypto {
   generateRecoveryKey(): { raw: Uint8Array; display: string };
   parseRecoveryKey(text: string): Uint8Array | null;
   deriveRecovery(raw: Uint8Array): RecoveryDerivation;
+  /** Lookup and key pair from a recovery key (§8); seal with `sealSpaceKey`. */
+  deriveRecoveryKeys(raw: Uint8Array): RecoveryKeys;
   wrapForRecovery(spaceKey: Uint8Array, recovery: RecoveryDerivation): Uint8Array;
   unwrapRecovery(wrapped: Uint8Array, recovery: RecoveryDerivation): Uint8Array;
 
@@ -80,6 +84,7 @@ export async function loadSyncCrypto(): Promise<SyncCrypto> {
     generateRecoveryKey: () => impl.generateRecoveryKey(s),
     parseRecoveryKey: (text) => impl.parseRecoveryKey(s, text),
     deriveRecovery: (raw) => impl.deriveRecovery(s, raw),
+    deriveRecoveryKeys: (raw) => impl.deriveRecoveryKeys(s, raw),
     wrapForRecovery: (key, recovery) => impl.wrapForRecovery(s, key, recovery),
     unwrapRecovery: (wrapped, recovery) => impl.unwrapRecovery(s, wrapped, recovery),
     encryptBlob: (data) => impl.encryptBlob(s, data),

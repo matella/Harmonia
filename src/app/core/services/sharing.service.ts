@@ -10,6 +10,8 @@ import type {
   InviteProgress,
   JoinProgress,
   MyDevice,
+  NewRecoveryKey,
+  RecoveryStatus,
   Sharing,
   SharingStatus,
 } from '../sync/sharing';
@@ -195,7 +197,6 @@ export class SharingService {
     });
   }
 
-  /** Leaves the space for both people; this device keeps everything. */
   /** My devices in the space; only these can be removed from the screen (§7.7). */
   async myDevices(): Promise<MyDevice[]> {
     return (await this.sharing()).myDevices();
@@ -237,6 +238,47 @@ export class SharingService {
     this.loading = null;
   }
 
+  async hasPartner(): Promise<boolean> {
+    return (await this.sharing()).hasPartner();
+  }
+
+  /** Whether my person has a recovery key in this space (§8). */
+  async recoveryStatus(): Promise<RecoveryStatus> {
+    return (await this.sharing()).recoveryStatus();
+  }
+
+  /** A new recovery key, in memory only until it is confirmed. */
+  async createRecoveryKey(): Promise<NewRecoveryKey> {
+    return (await this.sharing()).createRecoveryKey();
+  }
+
+  /** False when the server couldn't be reached: the key takes effect on a later sync. */
+  confirmRecoveryKey(answers: readonly [string, string]): Promise<boolean> {
+    return this.queue.run(async () => {
+      try {
+        return await (await this.sharing()).confirmRecoveryKey(answers);
+      } finally {
+        await this.afterChange();
+      }
+    });
+  }
+
+  async discardRecoveryKey(): Promise<void> {
+    (await this.sharing()).discardRecoveryKey();
+  }
+
+  /** Joins the space as the person holding this recovery key (§8). */
+  recover(text: string): Promise<void> {
+    return this.queue.run(async () => {
+      try {
+        await (await this.sharing()).recover(text);
+      } finally {
+        await this.afterChange();
+      }
+    });
+  }
+
+  /** Leaves the space for both people; this device keeps everything. */
   leave(): Promise<void> {
     return this.queue.run(async () => {
       await (await this.sharing()).leave();

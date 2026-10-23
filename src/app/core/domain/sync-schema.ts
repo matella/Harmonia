@@ -5,7 +5,13 @@
  * cannot slip into sync by accident.
  */
 export type SyncedRecordType =
-  'profile' | 'person' | 'milestone' | 'memory' | 'memory_media' | 'device';
+  | 'profile'
+  | 'person'
+  | 'milestone'
+  | 'memory'
+  | 'memory_media'
+  | 'device'
+  | 'recovery';
 
 export interface TableSyncSchema {
   table: string;
@@ -71,6 +77,14 @@ export const SYNC_SCHEMA: Readonly<Record<SyncedRecordType, TableSyncSchema>> = 
   },
   // Each device's own record of its public keys (PARTNER_SYNC §7.2). Removal is the
   // shared `revoked_at`, not a tombstone: a removed device stays known as removed.
+  // A person's recovery public key (§8), keyed by the person. Written only when the key is
+  // set up or replaced, never by name edits.
+  recovery: {
+    table: 'space_recovery',
+    shared: ['id', 'public_key'],
+    local: ['created_at', 'updated_at'],
+    meta: ['version', 'author_person_id'],
+  },
   device: {
     table: 'space_devices',
     shared: ['id', 'person_id', 'sign_public_key', 'box_public_key', 'platform', 'revoked_at'],

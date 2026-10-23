@@ -209,6 +209,25 @@ export function deriveRecovery(s: Sodium, raw: Uint8Array): RecoveryDerivation {
   };
 }
 
+/** What the recovery key yields (§8, revised in phase 4). */
+export interface RecoveryKeys {
+  /** Presented to recover(); the server stores only its SHA-256. */
+  lookup: Uint8Array;
+  /** X25519: each epoch's key is sealed to the public half. */
+  boxPublicKey: Uint8Array;
+  boxSecretKey: Uint8Array;
+}
+
+export function deriveRecoveryKeys(s: Sodium, raw: Uint8Array): RecoveryKeys {
+  const master = s.crypto_generichash(32, raw, s.from_string('harmonia-recovery-v2'));
+  const pair = s.crypto_box_seed_keypair(s.crypto_kdf_derive_from_key(32, 3, 'hmrecovr', master));
+  return {
+    lookup: s.crypto_kdf_derive_from_key(16, 1, 'hmrecovr', master),
+    boxPublicKey: pair.publicKey,
+    boxSecretKey: pair.privateKey,
+  };
+}
+
 export function wrapForRecovery(s: Sodium, spaceKey: Uint8Array, recovery: RecoveryDerivation): Uint8Array {
   return secretboxWrap(s, spaceKey, recovery.wrapKey);
 }

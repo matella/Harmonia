@@ -4,14 +4,25 @@ import { newId as newUuid } from '../persistence/ids';
 import type { RelationshipRepository } from '../persistence/relationship.repository';
 import type { SecureKeyStore } from '../platform/secure-key-store';
 import type { ConnectedDevice, DeviceSession } from './device-session';
-import { fromBase64, toBase64 } from './encoding';
+import { fromBase64, sha256, toBase64 } from './encoding';
 import { decodeInviteBundle, encodeInviteBundle } from './invite-bundle';
 import { SHARING_SECRETS } from './secret-names';
 import { formatInviteCode, parseInviteCode } from './invite-code';
-import { SpaceApi, SpaceApiError, type Membership } from './space-api';
-import { envelopeMessage, MissingSpaceKeyError, SpaceKeys } from './space-keys';
+import {
+  SpaceApi,
+  SpaceApiError,
+  type Membership,
+  type RecoveredSpace,
+  type RecoveryEnvelope,
+} from './space-api';
+import {
+  envelopeMessage,
+  MissingSpaceKeyError,
+  recoveryEnvelopeMessage,
+  SpaceKeys,
+} from './space-keys';
 import { SupabaseTransport } from './supabase-transport';
-import type { DevicePublicKeys, SyncCrypto } from './sync-crypto-port';
+import type { DevicePublicKeys, RecoveryKeys, SyncCrypto } from './sync-crypto-port';
 import { SyncEngine, type SyncReport } from './sync-engine';
 import type { LocalDefaults, StartOfRelationship, SyncStore } from './sync-store';
 
@@ -33,7 +44,19 @@ export type SharingErrorCode =
   | 'inviteMismatch'
   | 'newKeyNotTrusted'
   | 'unknownDevice'
-  | 'removalPending';
+  | 'removalPending'
+  /** Another key change (a recovery key being saved) must finish first. */
+  | 'keyChangePending'
+  /** The recovery key typed in is incomplete or has a typo (checksum). */
+  | 'invalidRecoveryKey'
+  /** The groups typed back don't match the new recovery key. */
+  | 'recoveryMismatch'
+  /** No new recovery key is waiting for confirmation (the app was restarted). */
+  | 'noRecoveryKey'
+  /** The space has no recovery envelope for its current key yet; try again later. */
+  | 'recoveryNotReady'
+  /** This device lacks an older key, so a new recovery key couldn't cover all history. */
+  | 'olderKeysMissing';
 
 /**
  * The server says this device no longer belongs to the space: the partner left (the space
@@ -67,6 +90,16 @@ export class SharingError extends Error {
 
 export type SharingStatus = 'off' | 'member' | 'memberWithoutKey' | 'joining';
 
+/** 'saving': confirmed, and committed on the server by the next sync. */
+export type RecoveryStatus = 'set' | 'missing' | 'saving';
+
+/** A new recovery key on screen (§8), and the two groups (0-based) to type back. */
+export interface NewRecoveryKey {
+  display: string;
+  groups: string[];
+  ask: [number, number];
+}
+
 export type InviteProgress =
   { state: 'waiting' } | { state: 'claimed'; safetyCode: string } | { state: 'gone' };
 
@@ -94,11 +127,24 @@ export interface SharingDeps {
 
 const NAMES = SHARING_SECRETS;
 
-/** A removal in progress: the new key is stored here before the server sees it. */
+/**
+ * A key change in progress: the new key is stored here before the server sees it. It
+ * removes `target`, sets up or replaces my recovery key (`recovery`), or neither (repair).
+ */
 interface PendingRotation {
   from: number;
-  target: string;
+  target: string | null;
   key: string;
+  recovery?: PendingRecovery;
+}
+
+/** Only the public parts of a confirmed recovery key: the key itself is never stored. */
+interface PendingRecovery {
+  personId: string;
+  /** base64 */
+  publicKey: string;
+  lookupHash: string;
+  publicKeyHash: string;
 }
 
 interface PendingInvite {
@@ -132,6 +178,8 @@ interface PendingJoin {
 
 export class Sharing {
   private readonly keys: SpaceKeys;
+  /** A new recovery key waiting for confirmation, in memory only (§8). */
+  private newRecovery: { raw: Uint8Array; groups: string[]; ask: [number, number] } | null = null;
 
   constructor(private readonly deps: SharingDeps) {
     this.keys = new SpaceKeys(deps.secrets);
@@ -140,6 +188,8 @@ export class Sharing {
   async status(): Promise<SharingStatus> {
     // A joiner choosing a start date is already in the space here, but not done.
     if (await this.read<PendingJoin>(NAMES.join)) return 'joining';
+    // An interrupted recovery is started again from the key: nothing of it counts yet.
+    if (await this.read(NAMES.recover)) return 'off';
     const state = await this.deps.store.state();
     if (!state) return 'off';
     return (await this.keys.has(state.spaceId, state.epoch)) ? 'member' : 'memberWithoutKey';
@@ -418,7 +468,9 @@ export class Sharing {
   async sync(): Promise<SyncReport> {
     if (!(await this.deps.store.state())) throw new SharingError('notSharing');
     // Until the joiner has answered (start date), nothing of theirs may be uploaded.
-    if (await this.read<PendingJoin>(NAMES.join)) throw new SharingError('joinInProgress');
+    if ((await this.read<PendingJoin>(NAMES.join)) || (await this.read(NAMES.recover))) {
+      throw new SharingError('joinInProgress');
+    }
     const device = await this.deps.session.connect();
     const api = new SpaceApi(device.client);
     // Before anything else (a member without its key must still learn this): after a
@@ -428,10 +480,12 @@ export class Sharing {
     await this.markRemovedOnServer(api);
     await this.loadKeys(api);
     await this.writeOwnDevice(device, membership?.personId ?? null);
-    if (await this.read<PendingRotation>(NAMES.rotation)) {
-      const done = await this.resumeRemoval(api, device);
+    const pending = await this.read<PendingRotation>(NAMES.rotation);
+    if (pending) {
+      const done = await this.resumeRotation(api, device);
       await this.loadKeys(api);
-      if (!done) {
+      // A key change that removes no device can wait: nobody unwanted holds the key.
+      if (!done && pending.target !== null) {
         // The removed device still holds the current key: download only, upload nothing
         // until the new key is in place.
         await this.engine(device.client).sync({ pullOnly: true });
@@ -441,6 +495,7 @@ export class Sharing {
     const report = await this.engine(device.client).sync();
     // After the pull, so the device list it seals to is as fresh as this device can know.
     await this.repairEnvelopes(api, device);
+    await this.repairRecovery(api, device);
     return report;
   }
 
@@ -499,8 +554,8 @@ export class Sharing {
     }
     // One removal at a time: finish an earlier one first, never overwrite it.
     const earlier = await this.read<PendingRotation>(NAMES.rotation);
-    if (earlier && earlier.target !== targetId && !(await this.resumeRemoval(api, device))) {
-      throw new SharingError('removalPending');
+    if (earlier && earlier.target !== targetId && !(await this.resumeRotation(api, device))) {
+      throw new SharingError(earlier.target === null ? 'keyChangePending' : 'removalPending');
     }
     // Recorded first: from here on the removal is resumed on every sync until the server
     // has rotated, so a device marked removed is never left holding the current key.
@@ -514,7 +569,7 @@ export class Sharing {
     // Only the device list goes up now; other changes wait for the new key.
     await this.deps.store.markDeviceRemoved(targetId);
     await this.engine(device.client).sync({ pushTypes: ['device'] });
-    if (!(await this.resumeRemoval(api, device))) throw new SharingError('removalPending');
+    if (!(await this.resumeRotation(api, device))) throw new SharingError('removalPending');
     await this.loadKeys(api);
     await this.engine(device.client).sync();
   }
@@ -529,6 +584,8 @@ export class Sharing {
   async removeThisDevice(): Promise<void> {
     const state = await this.deps.store.state();
     if (!state) return;
+    // A recovery that never finished: this device holds nothing of the space worth a key change.
+    if (await this.read(NAMES.recover)) return this.stopSharingHere();
     const device = await this.deps.session.connect();
     const api = new SpaceApi(device.client);
     try {
@@ -559,8 +616,9 @@ export class Sharing {
         );
         return { deviceId: d.id, sealed, signature };
       });
+      const recovery = await this.recoveryEnvelopes(current.spaceId, next, key, device);
       try {
-        await api.rotate(device.deviceId, current.epoch, envelopes);
+        await api.rotate(device.deviceId, current.epoch, envelopes, recovery);
         break;
       } catch (error) {
         const retry =
@@ -588,24 +646,30 @@ export class Sharing {
   }
 
   /**
-   * Finishes a removal recorded on this device: one all-or-nothing `rotate` call from the
-   * current epoch (§7.4). Returns true when no removal is left pending. If someone else
-   * rotated first, a fresh key is made for the new epoch next time; if the server already
-   * removed the device, there is nothing left to do.
+   * Finishes a key change recorded on this device: one all-or-nothing `rotate` call from
+   * the current epoch (§7.4, §8). Returns true when none is left pending. If someone else
+   * rotated first, a fresh key is made for the new epoch next time (a repair is simply
+   * dropped: the sync after it checks again); if the server already removed the device,
+   * there is nothing left to do.
    */
-  private async resumeRemoval(api: SpaceApi, device: ConnectedDevice): Promise<boolean> {
+  private async resumeRotation(api: SpaceApi, device: ConnectedDevice): Promise<boolean> {
     let pending = await this.read<PendingRotation>(NAMES.rotation);
     const state = await this.deps.store.state();
     if (!pending || !state) return true;
     if (pending.from !== state.epoch) {
+      if (pending.target === null && !pending.recovery) {
+        await this.deps.secrets.remove(NAMES.rotation);
+        return true;
+      }
       pending = { ...pending, from: state.epoch, key: toBase64(this.deps.crypto.newSpaceKey()) };
       await this.write(NAMES.rotation, pending);
     }
     const key = fromBase64(pending.key);
     const next = state.epoch + 1;
+    const target = pending.target;
     const removedOnServer = await api.removedDevices(state.spaceId).catch(() => new Set<string>());
     const recipients = (await this.deps.store.devices())
-      .filter((d) => !d.revokedAt && d.id !== pending!.target && !removedOnServer.has(d.id))
+      .filter((d) => !d.revokedAt && d.id !== target && !removedOnServer.has(d.id))
       .map((d) => ({ id: d.id, box: fromBase64(d.boxPublicKey) }));
     if (!recipients.some((r) => r.id === device.deviceId)) {
       recipients.push({ id: device.deviceId, box: device.keys.boxPublicKey });
@@ -618,10 +682,23 @@ export class Sharing {
       );
       return { deviceId: r.id, sealed, signature };
     });
+    const recovery = await this.recoveryEnvelopes(
+      state.spaceId,
+      next,
+      key,
+      device,
+      pending.recovery,
+    );
+    const newRecovery = pending.recovery
+      ? {
+          lookupHash: fromBase64(pending.recovery.lookupHash),
+          publicKeyHash: fromBase64(pending.recovery.publicKeyHash),
+        }
+      : null;
     try {
-      await api.rotate(pending.target, state.epoch, envelopes);
+      await api.rotate(target, state.epoch, envelopes, recovery, newRecovery);
     } catch (error) {
-      if (error instanceof SpaceApiError && error.code === 'targetGone') {
+      if (target !== null && error instanceof SpaceApiError && error.code === 'targetGone') {
         // The server says the device is no longer in the space: removed already.
         await this.deps.secrets.remove(NAMES.rotation);
         return true;
@@ -630,20 +707,94 @@ export class Sharing {
       // on the next sync, with a fresh list.
       return false;
     }
-    await this.finishRotation(state.spaceId, next, key, pending.target);
+    await this.keys.save(state.spaceId, next, key);
+    await this.deps.store.setEpoch(next);
+    await this.settleRotation(pending);
     return true;
   }
 
-  private async finishRotation(
+  /** The local half of a key change the server has made. */
+  private async settleRotation(pending: PendingRotation): Promise<void> {
+    if (pending.target !== null) await this.deps.store.markDeviceRemoved(pending.target);
+    if (pending.recovery) {
+      // Only now: until the server holds the new lookup, others must keep sealing to the old key.
+      await this.deps.store.writeRecovery(pending.recovery.personId, pending.recovery.publicKey);
+    }
+    await this.deps.secrets.remove(NAMES.rotation);
+  }
+
+  /**
+   * The key of `epoch` sealed to every person's recovery public key this device knows
+   * (§8), each signed by this device. With `own` (setup or Replace), my person gets the
+   * new public key instead, for every epoch up to `epoch`.
+   */
+  private async recoveryEnvelopes(
     spaceId: string,
     epoch: number,
     key: Uint8Array,
-    removed: string,
-  ): Promise<void> {
-    await this.keys.save(spaceId, epoch, key);
-    await this.deps.store.setEpoch(epoch);
-    await this.deps.store.markDeviceRemoved(removed);
-    await this.deps.secrets.remove(NAMES.rotation);
+    device: ConnectedDevice,
+    own?: PendingRecovery,
+  ): Promise<RecoveryEnvelope[]> {
+    const envelopes: RecoveryEnvelope[] = [];
+    const seal = async (personId: string, publicKey: Uint8Array, e: number, k: Uint8Array) => {
+      const sealed = this.deps.crypto.sealSpaceKey(k, publicKey);
+      envelopes.push({
+        personId,
+        epoch: e,
+        sealed,
+        signature: this.deps.crypto.sign(
+          recoveryEnvelopeMessage(spaceId, e, personId, sealed),
+          device.keys,
+        ),
+        publicKeyHash: await sha256(publicKey),
+      });
+    };
+    for (const [personId, publicKey] of await this.deps.store.recoveryKeys()) {
+      if (personId !== own?.personId) await seal(personId, fromBase64(publicKey), epoch, key);
+    }
+    if (own) {
+      const publicKey = fromBase64(own.publicKey);
+      for (let e = 1; e < epoch; e++) {
+        const older = this.keys.key(e);
+        if (!older) throw new SharingError('olderKeysMissing');
+        await seal(own.personId, publicKey, e, older);
+      }
+      await seal(own.personId, publicKey, epoch, key);
+    }
+    return envelopes;
+  }
+
+  /**
+   * Repair (§8): a person the server has no recovery envelope for in this epoch (a
+   * rotation sealed to their old public key) gets one through a key change that removes
+   * no device, if this device knows the key the server expects. A rotation rather than a
+   * single envelope, so the newest key a recovering device receives is always signed by a
+   * device listed under an older one. Best effort.
+   */
+  private async repairRecovery(api: SpaceApi, device: ConnectedDevice): Promise<void> {
+    try {
+      const state = await this.deps.store.state();
+      if (!state || (await this.read(NAMES.rotation))) return;
+      const missing = await api.personsMissingRecoveryEnvelope();
+      if (missing.length === 0) return;
+      const known = await this.deps.store.recoveryKeys();
+      let fixable = false;
+      for (const m of missing) {
+        const publicKey = known.get(m.personId);
+        if (publicKey && sameBytes(await sha256(fromBase64(publicKey)), m.publicKeyHash)) {
+          fixable = true;
+        }
+      }
+      if (!fixable) return;
+      await this.write<PendingRotation>(NAMES.rotation, {
+        from: state.epoch,
+        target: null,
+        key: toBase64(this.deps.crypto.newSpaceKey()),
+      });
+      await this.resumeRotation(api, device);
+    } catch {
+      // Retried on the next sync.
+    }
   }
 
   /**
@@ -669,7 +820,7 @@ export class Sharing {
       // first, and then the target was never removed.
       // Otherwise the removal stays pending and is retried from the new epoch.
       const next = adopted.get(pending.from + 1);
-      if (next && toBase64(next) === pending.key) await this.deps.secrets.remove(NAMES.rotation);
+      if (next && toBase64(next) === pending.key) await this.settleRotation(pending);
     }
   }
 
@@ -700,15 +851,19 @@ export class Sharing {
     }
   }
 
-  /** After joining: this device's own envelopes for the epochs before the current one. */
+  /**
+   * After joining: this device's own envelopes for the epochs before the current one (and
+   * the current one too with `upTo`, after a recovery, which has no `finishJoin`).
+   */
   private async storeOlderEnvelopes(
     api: SpaceApi,
     device: ConnectedDevice,
     spaceId: string,
     current: number,
+    upTo = current - 1,
   ): Promise<void> {
     const older: { epoch: number; sealed: Uint8Array; signature: Uint8Array }[] = [];
-    for (let epoch = 1; epoch < current; epoch++) {
+    for (let epoch = 1; epoch <= upTo; epoch++) {
       const key = this.keys.key(epoch);
       if (!key) continue;
       const sealed = this.deps.crypto.sealSpaceKey(key, device.keys.boxPublicKey);
@@ -735,6 +890,186 @@ export class Sharing {
       boxPublicKey: toBase64(device.keys.boxPublicKey),
       platform: this.deps.session.platform,
     });
+  }
+
+  // -------------------------------------------------------------------------------
+  // Recovery key (§8)
+
+  /** Whether a partner has joined the space (otherwise the inviter can still invite one). */
+  async hasPartner(): Promise<boolean> {
+    return (await this.deps.profiles.persons()).some((p) => !p.isSelf && !p.isPlaceholder);
+  }
+
+  /** Whether my person has a recovery key in this space. */
+  async recoveryStatus(): Promise<RecoveryStatus> {
+    if ((await this.read<PendingRotation>(NAMES.rotation))?.recovery) return 'saving';
+    const self = (await this.deps.profiles.persons()).find((p) => p.isSelf)?.id;
+    return self && (await this.deps.store.recoveryKeys()).has(self) ? 'set' : 'missing';
+  }
+
+  /**
+   * A new recovery key to show, kept in memory only: it is never stored on any device
+   * (decided 2026-10-23). Nothing changes until `confirmRecoveryKey`; asking again makes
+   * another one.
+   */
+  async createRecoveryKey(): Promise<NewRecoveryKey> {
+    if (!(await this.deps.store.state())) throw new SharingError('notSharing');
+    const { raw, display } = this.deps.crypto.generateRecoveryKey();
+    const groups = display.split('-');
+    const first = Math.floor(Math.random() * groups.length);
+    let second = Math.floor(Math.random() * (groups.length - 1));
+    if (second >= first) second++;
+    const ask: [number, number] = first < second ? [first, second] : [second, first];
+    this.newRecovery = { raw, groups, ask };
+    return { display, groups: [...groups], ask };
+  }
+
+  /**
+   * Checks the two groups typed back, then sets up (or replaces) the recovery key: a key
+   * change that removes no device, with every recovery envelope (§8). Only the public
+   * parts are stored, so an interrupted change is finished by the next sync. Returns false
+   * when the server couldn't be reached: the key then takes effect on a later sync.
+   */
+  async confirmRecoveryKey(answers: readonly [string, string]): Promise<boolean> {
+    const pendingKey = this.newRecovery;
+    if (!pendingKey) throw new SharingError('noRecoveryKey');
+    const [a, b] = pendingKey.ask;
+    if (
+      normalizeGroup(answers[0]) !== pendingKey.groups[a] ||
+      normalizeGroup(answers[1]) !== pendingKey.groups[b]
+    ) {
+      throw new SharingError('recoveryMismatch');
+    }
+    if (!(await this.deps.store.state())) throw new SharingError('notSharing');
+    const device = await this.deps.session.connect();
+    const api = new SpaceApi(device.client);
+    await this.catchUp(api, device, await this.checkStillMember(api));
+    await this.markRemovedOnServer(api);
+    await this.loadKeys(api);
+    // One key change at a time: an earlier one is finished first, never overwritten.
+    const earlier = await this.read<PendingRotation>(NAMES.rotation);
+    if (earlier && !(await this.resumeRotation(api, device))) {
+      throw new SharingError(earlier.target === null ? 'keyChangePending' : 'removalPending');
+    }
+    await this.loadKeys(api);
+    const state = (await this.deps.store.state())!;
+    // The server deletes my old recovery envelopes: without every older key here, that
+    // part of the history would be lost to recovery.
+    for (let epoch = 1; epoch <= state.epoch; epoch++) {
+      if (!this.keys.key(epoch)) throw new SharingError('olderKeysMissing');
+    }
+    // This device's own record goes up under the current key first, so a recovering
+    // device can check who signed the new key from what it reads before it (§8).
+    await this.writeOwnDevice(device, null);
+    await this.engine(device.client).sync();
+
+    const self = (await this.deps.profiles.persons()).find((p) => p.isSelf)?.id;
+    if (!self) throw new SharingError('noProfile');
+    const derived = this.deps.crypto.deriveRecoveryKeys(pendingKey.raw);
+    await this.write<PendingRotation>(NAMES.rotation, {
+      from: state.epoch,
+      target: null,
+      key: toBase64(this.deps.crypto.newSpaceKey()),
+      recovery: {
+        personId: self,
+        publicKey: toBase64(derived.boxPublicKey),
+        lookupHash: toBase64(await sha256(derived.lookup)),
+        publicKeyHash: toBase64(await sha256(derived.boxPublicKey)),
+      },
+    });
+    this.newRecovery = null;
+    if (!(await this.resumeRotation(api, device))) return false;
+    await this.loadKeys(api);
+    // The new public key goes up now; if this fails, the next sync sends it.
+    await this.engine(device.client)
+      .sync()
+      .catch(() => undefined);
+    return true;
+  }
+
+  /** Forgets a new recovery key that was not confirmed. */
+  discardRecoveryKey(): void {
+    this.newRecovery = null;
+  }
+
+  /**
+   * Recovery (§8): this device, in no space, joins as the person holding the recovery key
+   * typed in. Its keys are trusted only after checking them against what it can already
+   * read. Interrupted, it is simply started again.
+   */
+  async recover(text: string): Promise<void> {
+    if (await this.read(NAMES.recover)) await this.stopSharingHere();
+    if (await this.deps.store.state()) throw new SharingError('alreadySharing');
+    if (await this.read<PendingJoin>(NAMES.join)) throw new SharingError('joinInProgress');
+    const raw = this.deps.crypto.parseRecoveryKey(text);
+    if (!raw) throw new SharingError('invalidRecoveryKey');
+    const recovery = this.deps.crypto.deriveRecoveryKeys(raw);
+    const device = await this.deps.session.connect({ createKeys: true });
+    const api = new SpaceApi(device.client);
+    const found = await api.recover(recovery.lookup);
+    await this.write(NAMES.recover, { spaceId: found.spaceId, personId: found.personId });
+    try {
+      await this.checkRecovered(device, found, recovery);
+      await this.storeOlderEnvelopes(api, device, found.spaceId, found.epoch, found.epoch);
+    } catch (error) {
+      await this.stopSharingHere();
+      throw error;
+    }
+    await this.deps.secrets.remove(NAMES.recover);
+    await this.finishJoin(true);
+  }
+
+  /**
+   * Opens the recovery envelopes and joins, trusting the newest key only when a device
+   * listed under the older keys, and not removed, signed it (§7.3), and only when the
+   * person the server named holds the recovery record with this public key.
+   */
+  private async checkRecovered(
+    device: ConnectedDevice,
+    found: RecoveredSpace,
+    recovery: RecoveryKeys,
+  ): Promise<void> {
+    // The server never sees a recovery public key: an envelope that opens was sealed by
+    // someone who read it in the space.
+    const opened = new Map<number, Uint8Array>();
+    for (const envelope of found.envelopes) {
+      try {
+        opened.set(envelope.epoch, this.deps.crypto.openSealedSpaceKey(envelope.sealed, recovery));
+      } catch {
+        // Not for this key.
+      }
+    }
+    const newest = found.envelopes.find((e) => e.epoch === found.epoch);
+    const newestKey = opened.get(found.epoch);
+    if (!newest || !newestKey) throw new SharingError('recoveryNotReady');
+
+    this.keys.reset();
+    await this.deps.store.becomePerson(found.personId);
+    await this.deps.store.joinSpace(found.spaceId, found.epoch, { queueProfile: false });
+    // Older keys first: what they read includes the device list and every removal (§7.4).
+    for (const [epoch, key] of opened) {
+      if (epoch < found.epoch) await this.keys.save(found.spaceId, epoch, key);
+    }
+    await this.engine(device.client).sync({ pullOnly: true, adoptProfile: true });
+    const signer = (await this.deps.store.devices()).find(
+      (d) => d.id === newest.signerDeviceId && !d.revokedAt,
+    );
+    const message = recoveryEnvelopeMessage(
+      found.spaceId,
+      found.epoch,
+      found.personId,
+      newest.sealed,
+    );
+    if (
+      !signer ||
+      !this.deps.crypto.verify(message, newest.signature, fromBase64(signer.signPublicKey))
+    ) {
+      throw new SharingError('newKeyNotTrusted');
+    }
+    await this.keys.save(found.spaceId, found.epoch, newestKey);
+    await this.engine(device.client).sync({ pullOnly: true, adoptProfile: true });
+    const recorded = (await this.deps.store.recoveryKeys()).get(found.personId);
+    if (recorded !== toBase64(recovery.boxPublicKey)) throw new SharingError('newKeyNotTrusted');
   }
 
   /**
@@ -893,4 +1228,13 @@ function publicKeys(keys: DevicePublicKeys): DevicePublicKeys {
 
 function sameStart(a: StartOfRelationship, b: StartOfRelationship): boolean {
   return a.startDate === b.startDate;
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((byte, i) => byte === b[i]);
+}
+
+/** A group as typed: case, spaces and hyphens ignored, O read as 0, I and L as 1. */
+function normalizeGroup(text: string): string {
+  return text.toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
 }

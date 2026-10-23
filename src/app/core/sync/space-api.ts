@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { fromBytea, toBase64, toBytea } from './encoding';
+import { fromBase64, fromBytea, toBase64, toBytea } from './encoding';
 import type { DevicePublicKeys } from './sync-crypto-port';
 
 /**
@@ -16,6 +16,7 @@ export type SpaceErrorCode =
   | 'epochChanged'
   | 'targetGone'
   | 'staleRecipients'
+  | 'unknownRecoveryKey'
   | 'network'
   | 'server';
 
@@ -80,6 +81,38 @@ interface EnvelopeRow {
   signer_device_id: string | null;
 }
 
+/** A recovery envelope: an epoch's key sealed to a person's recovery public key. */
+export interface RecoveryEnvelope {
+  personId: string;
+  epoch: number;
+  sealed: Uint8Array;
+  signature: Uint8Array;
+  /** SHA-256 of the public key it is sealed to; the server skips one for an older key. */
+  publicKeyHash: Uint8Array;
+}
+
+/** What recover() returns: where the device now belongs, and its person's envelopes. */
+export interface RecoveredSpace {
+  spaceId: string;
+  personId: string;
+  epoch: number;
+  envelopes: {
+    epoch: number;
+    sealed: Uint8Array;
+    signature: Uint8Array;
+    signerDeviceId: string | null;
+  }[];
+}
+
+const recoveryJson = (envelopes: readonly RecoveryEnvelope[]) =>
+  envelopes.map((e) => ({
+    person_id: e.personId,
+    epoch: e.epoch,
+    sealed: toBase64(e.sealed),
+    signature: toBase64(e.signature),
+    public_key_hash: toBase64(e.publicKeyHash),
+  }));
+
 const envelopesJson = (envelopes: readonly EnvelopeForDevice[]) =>
   envelopes.map((e) => ({
     device_id: e.deviceId,
@@ -95,6 +128,7 @@ const MESSAGES: [RegExp, SpaceErrorCode][] = [
   [/epoch changed/, 'epochChanged'],
   [/target not in space/, 'targetGone'],
   [/unknown recipient/, 'staleRecipients'],
+  [/unknown recovery key/, 'unknownRecoveryKey'],
   [/not allowed|not a member|unknown device/, 'notAllowed'],
 ];
 
@@ -232,15 +266,64 @@ export class SpaceApi {
    * Fails with 'epochChanged' when the space is no longer at `expectedEpoch`.
    */
   async rotate(
-    target: string,
+    target: string | null,
     expectedEpoch: number,
     envelopes: readonly EnvelopeForDevice[],
+    recovery: readonly RecoveryEnvelope[] = [],
+    newRecovery: { lookupHash: Uint8Array; publicKeyHash: Uint8Array } | null = null,
   ): Promise<number> {
     return this.call<number>('rotate', 'rotate', {
       target,
       expected_epoch: expectedEpoch,
       envelopes: envelopesJson(envelopes),
+      recovery_envelopes: recoveryJson(recovery),
+      new_lookup_hash: newRecovery ? toBytea(newRecovery.lookupHash) : null,
+      new_public_key_hash: newRecovery ? toBytea(newRecovery.publicKeyHash) : null,
     });
+  }
+
+  /** Recovery (§8): admitted as the person holding the key, with its envelopes. */
+  async recover(lookup: Uint8Array): Promise<RecoveredSpace> {
+    const [row] = await this.call<
+      {
+        space_id: string;
+        person_id: string;
+        epoch: number;
+        envelopes: {
+          epoch: number;
+          sealed: string;
+          signature: string;
+          signer_device_id: string | null;
+        }[];
+      }[]
+    >('recover', 'recover', { lookup: toBytea(lookup) });
+    if (!row) throw new SpaceApiError('unknownRecoveryKey', 'recover');
+    return {
+      spaceId: row.space_id,
+      personId: row.person_id,
+      epoch: row.epoch,
+      envelopes: row.envelopes.map((e) => ({
+        epoch: e.epoch,
+        sealed: fromBase64(e.sealed),
+        signature: fromBase64(e.signature),
+        signerDeviceId: e.signer_device_id,
+      })),
+    };
+  }
+
+  /** Persons with no recovery envelope for the current epoch, and their public key's hash. */
+  async personsMissingRecoveryEnvelope(): Promise<
+    { personId: string; publicKeyHash: Uint8Array }[]
+  > {
+    const rows = await this.call<{ person_id: string; public_key_hash: string }[]>(
+      'personsMissingRecoveryEnvelope',
+      'persons_missing_recovery_envelope',
+      {},
+    );
+    return (rows ?? []).map((r) => ({
+      personId: r.person_id,
+      publicKeyHash: fromBytea(r.public_key_hash),
+    }));
   }
 
   /**

@@ -7,11 +7,18 @@ import {
   type OnDestroy,
   type OnInit,
 } from '@angular/core';
+import { Capacitor } from '@capacitor/core';
 import { Share } from '@capacitor/share';
 import { IonContent, IonIcon, IonSpinner } from '@ionic/angular';
 
 import type { StartOfRelationship } from '../../core/sync/sync-store';
-import type { InviteProgress, JoinProgress, MyDevice } from '../../core/sync/sharing';
+import type {
+  InviteProgress,
+  JoinProgress,
+  MyDevice,
+  NewRecoveryKey,
+  RecoveryStatus,
+} from '../../core/sync/sharing';
 import { I18nService } from '../../core/services/i18n.service';
 import { NoticeService } from '../../core/services/notice.service';
 import { DataExportService } from '../../core/services/data-export.service';
@@ -29,7 +36,13 @@ type View =
   | { kind: 'invite'; code: string; progress: InviteProgress; forMe: boolean }
   | { kind: 'joining'; progress: JoinProgress }
   | { kind: 'member' }
-  | { kind: 'noKey' };
+  | { kind: 'noKey' }
+  | { kind: 'recover' }
+  /** A new recovery key on screen; `then`: where to go once it is confirmed. */
+  | { kind: 'recoveryKey'; key: NewRecoveryKey; replace: boolean; then: AfterRecovery }
+  | { kind: 'recoveryConfirm'; key: NewRecoveryKey; replace: boolean; then: AfterRecovery };
+
+type AfterRecovery = 'invite' | 'member';
 
 /** How often an open screen asks the server about an invite or a join. */
 const POLL_MS = 3000;
@@ -65,6 +78,170 @@ const POLL_MS = 3000;
                 <ion-icon name="key-outline" aria-hidden="true" />{{ 'sharing.join' | t }}
               </button>
             </div>
+            <div class="actions">
+              <button
+                type="button"
+                class="hm-btn hm-btn--quiet"
+                (click)="show({ kind: 'recover' })"
+              >
+                {{ 'sharing.recover' | t }}
+              </button>
+            </div>
+          }
+
+          @case ('recover') {
+            <form class="hm-form" (submit)="recover(); $event.preventDefault()" novalidate>
+              <h2 class="hm-section__title">{{ 'sharing.recover' | t }}</h2>
+              <p class="hm-section__hint">{{ 'sharing.recoverBody' | t }}</p>
+              <div class="hm-field">
+                <label class="hm-field__label" for="r-key">{{ 'sharing.recoverField' | t }}</label>
+                <textarea
+                  id="r-key"
+                  class="hm-input code-input"
+                  rows="2"
+                  autocapitalize="characters"
+                  autocomplete="off"
+                  spellcheck="false"
+                  translate="no"
+                  aria-describedby="r-key-hint"
+                  [value]="recoverText()"
+                  (input)="recoverText.set($any($event.target).value)"
+                ></textarea>
+                <span id="r-key-hint" class="hm-field__hint">{{
+                  'sharing.recoverFieldHint' | t
+                }}</span>
+              </div>
+              @if (error()) {
+                <p class="hm-field__error" role="alert">{{ error() }}</p>
+              }
+              <div class="actions">
+                <button type="submit" class="hm-btn" [disabled]="busy()">
+                  @if (busy()) {
+                    <ion-spinner name="crescent" />{{ 'sharing.recovering' | t }}
+                  } @else {
+                    {{ 'sharing.recoverAction' | t }}
+                  }
+                </button>
+                <button
+                  type="button"
+                  class="hm-btn hm-btn--quiet"
+                  [disabled]="busy()"
+                  (click)="show({ kind: 'off' })"
+                >
+                  {{ 'common.cancel' | t }}
+                </button>
+              </div>
+            </form>
+          }
+
+          @case ('recoveryKey') {
+            @let shown = recoveryView();
+            @if (shown) {
+              <section class="hm-section" aria-labelledby="rk-heading">
+                <h2 id="rk-heading" class="hm-section__title">{{ 'sharing.recoveryTitle' | t }}</h2>
+                <p class="hm-section__hint">{{ 'sharing.recoveryBody' | t }}</p>
+                @if (shown.replace) {
+                  <p class="hm-section__hint">{{ 'sharing.recoveryReplaceBody' | t }}</p>
+                }
+                <ol class="key hm-card" translate="no">
+                  @for (group of shown.key.groups; track $index) {
+                    <li class="key__group">
+                      <span class="key__n" aria-hidden="true">{{ $index + 1 }}</span>
+                      <span class="key__text">{{ group }}</span>
+                    </li>
+                  }
+                </ol>
+                <div class="actions">
+                  <button
+                    type="button"
+                    class="hm-btn hm-btn--outline"
+                    (click)="copyKey(shown.key.display)"
+                  >
+                    <ion-icon name="copy-outline" aria-hidden="true" />{{
+                      'sharing.recoveryCopy' | t
+                    }}
+                  </button>
+                  <button
+                    type="button"
+                    class="hm-btn hm-btn--outline"
+                    (click)="saveKey(shown.key.display)"
+                  >
+                    <ion-icon name="download-outline" aria-hidden="true" />{{
+                      'sharing.recoverySave' | t
+                    }}
+                  </button>
+                </div>
+                <div class="actions">
+                  <button type="button" class="hm-btn" (click)="askConfirmation()">
+                    {{ 'sharing.recoverySaved' | t }}
+                  </button>
+                  @if (shown.replace) {
+                    <button type="button" class="hm-btn hm-btn--quiet" (click)="cancelReplace()">
+                      {{ 'common.cancel' | t }}
+                    </button>
+                  }
+                </div>
+              </section>
+            }
+          }
+
+          @case ('recoveryConfirm') {
+            @let confirming = recoveryView();
+            @if (confirming) {
+              <form
+                class="hm-form"
+                (submit)="confirmRecovery(); $event.preventDefault()"
+                novalidate
+              >
+                <h2 class="hm-section__title">{{ 'sharing.recoveryConfirmTitle' | t }}</h2>
+                <p class="hm-section__hint">
+                  {{
+                    'sharing.recoveryConfirmBody'
+                      | t: { first: confirming.key.ask[0] + 1, second: confirming.key.ask[1] + 1 }
+                  }}
+                </p>
+                <div class="groups">
+                  @for (i of [0, 1]; track i) {
+                    <div class="hm-field">
+                      <label class="hm-field__label" [for]="'rc-' + i">{{
+                        'sharing.recoveryGroup' | t: { n: confirming.key.ask[i] + 1 }
+                      }}</label>
+                      <input
+                        [id]="'rc-' + i"
+                        class="hm-input code-input"
+                        type="text"
+                        maxlength="7"
+                        autocapitalize="characters"
+                        autocomplete="off"
+                        spellcheck="false"
+                        [value]="answers()[i]"
+                        (input)="setAnswer(i, $any($event.target).value)"
+                      />
+                    </div>
+                  }
+                </div>
+                @if (error()) {
+                  <p class="hm-field__error" role="alert">{{ error() }}</p>
+                }
+                <div class="actions">
+                  <button type="submit" class="hm-btn" [disabled]="busy()">
+                    @if (busy()) {
+                      <ion-spinner name="crescent" />{{ 'sharing.recoveryConfirming' | t }}
+                    } @else {
+                      {{ 'sharing.recoveryConfirm' | t }}
+                    }
+                  </button>
+                  <button
+                    type="button"
+                    class="hm-btn hm-btn--quiet"
+                    [disabled]="busy()"
+                    (click)="showKeyAgain()"
+                  >
+                    {{ 'sharing.recoveryBack' | t }}
+                  </button>
+                </div>
+              </form>
+            }
           }
 
           @case ('start') {
@@ -323,6 +500,26 @@ const POLL_MS = 3000;
           }
 
           @case ('member') {
+            @if (recoveryStatus() === 'missing') {
+              <section class="statement statement--stacked" aria-labelledby="rm-heading">
+                <h2 id="rm-heading" class="hm-section__title">
+                  {{ 'sharing.recoveryMissingTitle' | t }}
+                </h2>
+                <p>{{ 'sharing.recoveryMissingBody' | t }}</p>
+                <div class="actions">
+                  <button
+                    type="button"
+                    class="hm-btn"
+                    [disabled]="busy()"
+                    (click)="beginRecovery(false, 'member')"
+                  >
+                    <ion-icon name="key-outline" aria-hidden="true" />{{
+                      'sharing.recoveryCreate' | t
+                    }}
+                  </button>
+                </div>
+              </section>
+            }
             <section class="hm-section" aria-labelledby="member-heading">
               <h2 id="member-heading" class="hm-section__title">
                 @if (partnerName(); as name) {
@@ -340,6 +537,16 @@ const POLL_MS = 3000;
                     <ion-icon name="sync-outline" aria-hidden="true" />{{ 'sharing.syncNow' | t }}
                   }
                 </button>
+                @if (canInvite()) {
+                  <button
+                    type="button"
+                    class="hm-btn hm-btn--outline"
+                    [disabled]="busy()"
+                    (click)="invitePartner()"
+                  >
+                    <ion-icon name="people-outline" aria-hidden="true" />{{ 'sharing.invite' | t }}
+                  </button>
+                }
                 <button
                   type="button"
                   class="hm-btn hm-btn--outline"
@@ -378,6 +585,35 @@ const POLL_MS = 3000;
                     </li>
                   }
                 </ul>
+              </section>
+            }
+            @if (recoveryStatus() === 'set' || recoveryStatus() === 'saving') {
+              <section class="hm-section" aria-labelledby="recovery-heading">
+                <h2 id="recovery-heading" class="hm-section__title">
+                  {{ 'sharing.recoverySectionTitle' | t }}
+                </h2>
+                @if (recoveryStatus() === 'saving') {
+                  <p class="hm-section__hint" role="status">
+                    {{ 'sharing.recoverySavingBody' | t }}
+                  </p>
+                } @else {
+                  <p class="hm-section__hint">{{ 'sharing.recoverySetBody' | t }}</p>
+                  @if (suggestReplace()) {
+                    <p class="hm-section__hint" role="status">
+                      {{ 'sharing.recoveryAfterRemoval' | t }}
+                    </p>
+                  }
+                  <div class="actions">
+                    <button
+                      type="button"
+                      class="hm-btn hm-btn--outline"
+                      [disabled]="busy()"
+                      (click)="beginRecovery(true, 'member')"
+                    >
+                      {{ 'sharing.recoveryReplace' | t }}
+                    </button>
+                  </div>
+                }
               </section>
             }
             <section class="hm-section danger-zone" aria-labelledby="leave-heading">
@@ -423,7 +659,7 @@ const POLL_MS = 3000;
             </section>
           }
         }
-        @if (error() && view().kind !== 'start' && view().kind !== 'join') {
+        @if (error() && !hasOwnError()) {
           <p class="hm-field__error" role="alert">{{ error() }}</p>
         }
       </div>
@@ -450,6 +686,48 @@ const POLL_MS = 3000;
         color: var(--hm-berry);
         margin-top: 2px;
       }
+    }
+    .statement--stacked {
+      flex-direction: column;
+      gap: 0;
+
+      p {
+        margin: 0;
+      }
+      .actions {
+        margin-bottom: 0;
+      }
+    }
+    .key {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--hm-space-2) var(--hm-space-5);
+      margin: var(--hm-space-4) 0 0;
+      padding: var(--hm-space-5);
+      list-style: none;
+      user-select: all;
+    }
+    .key__group {
+      display: flex;
+      align-items: baseline;
+      gap: var(--hm-space-2);
+    }
+    .key__n {
+      min-width: 1.25em;
+      font-size: var(--hm-text-sm);
+      color: var(--hm-ink-muted);
+      font-variant-numeric: tabular-nums;
+      user-select: none;
+    }
+    .key__text {
+      font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      font-size: 1.25rem;
+      letter-spacing: 0.06em;
+    }
+    .groups {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--hm-space-3);
     }
     .actions {
       display: flex;
@@ -543,6 +821,21 @@ export class SharingPage implements OnInit, OnDestroy {
   protected readonly codeText = signal('');
   protected readonly joinSafety = signal<string | null>(null);
   protected readonly myDevices = signal<MyDevice[]>([]);
+  protected readonly recoveryStatus = signal<RecoveryStatus | null>(null);
+  /** Sharing is on but no partner has joined yet: a new invite can be made. */
+  protected readonly canInvite = signal(false);
+  /** After removing a device: replacing the recovery key is suggested (§8). */
+  protected readonly suggestReplace = signal(false);
+  protected readonly recoverText = signal('');
+  protected readonly answers = signal<[string, string]>(['', '']);
+  protected readonly recoveryView = computed(() => {
+    const v = this.view();
+    return v.kind === 'recoveryKey' || v.kind === 'recoveryConfirm' ? v : null;
+  });
+  /** Forms that show their error next to the button. */
+  protected readonly hasOwnError = computed(() =>
+    ['start', 'join', 'recover', 'recoveryConfirm'].includes(this.view().kind),
+  );
   protected readonly partnerName = computed(() => this.store.profile()?.displayName ?? null);
   protected readonly inviteView = computed(() => {
     const v = this.view();
@@ -610,6 +903,103 @@ export class SharingPage implements OnInit, OnDestroy {
   protected async start(): Promise<void> {
     await this.run(async () => {
       await this.sharing.startSharing(this.selfName());
+      // The recovery key comes first and can't be skipped (§8); the invite follows.
+      await this.showNewKey(false, 'invite');
+    });
+  }
+
+  protected async beginRecovery(replace: boolean, then: AfterRecovery): Promise<void> {
+    await this.run(() => this.showNewKey(replace, then));
+  }
+
+  private async showNewKey(replace: boolean, then: AfterRecovery): Promise<void> {
+    const key = await this.sharing.createRecoveryKey();
+    this.view.set({ kind: 'recoveryKey', key, replace, then });
+  }
+
+  protected askConfirmation(): void {
+    const v = this.recoveryView();
+    if (!v) return;
+    this.answers.set(['', '']);
+    this.show({ ...v, kind: 'recoveryConfirm' });
+  }
+
+  protected showKeyAgain(): void {
+    const v = this.recoveryView();
+    if (v) this.show({ ...v, kind: 'recoveryKey' });
+  }
+
+  protected setAnswer(index: number, value: string): void {
+    const next: [string, string] = [...this.answers()];
+    next[index] = value;
+    this.answers.set(next);
+  }
+
+  protected async cancelReplace(): Promise<void> {
+    await this.sharing.discardRecoveryKey();
+    this.showMember();
+  }
+
+  protected async confirmRecovery(): Promise<void> {
+    const v = this.recoveryView();
+    if (!v) return;
+    await this.run(async () => {
+      const committed = await this.sharing.confirmRecoveryKey(this.answers());
+      this.tell(committed ? 'sharing.recoveryDone' : 'sharing.recoveryLater');
+      this.suggestReplace.set(false);
+      this.showMember();
+      if (v.then === 'invite') {
+        const code = await this.sharing.createInvite();
+        this.view.set({ kind: 'invite', code, progress: { state: 'waiting' }, forMe: false });
+      }
+    });
+  }
+
+  /** §8: all my devices lost; this one comes back with the recovery key alone. */
+  protected async recover(): Promise<void> {
+    await this.run(async () => {
+      await this.sharing.recover(this.recoverText());
+      this.recoverText.set('');
+      this.showMember();
+      this.tell('sharing.recovered');
+    });
+  }
+
+  protected async copyKey(key: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(key);
+      this.tell('sharing.recoveryCopied');
+    } catch {
+      // Clipboard unavailable: the key stays selectable on screen.
+    }
+  }
+
+  /**
+   * Hands the key to the share sheet as text (a password manager, notes, a file): the app
+   * itself never writes it anywhere. In the browser preview it downloads a text file.
+   */
+  protected async saveKey(key: string): Promise<void> {
+    const text = this.t.t('sharing.recoveryShareText', { key });
+    const title = this.t.t('sharing.recoveryShareTitle');
+    if (!Capacitor.isNativePlatform()) {
+      const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'harmonia-recovery-key.txt';
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return;
+    }
+    try {
+      await Share.share({ title, text, dialogTitle: title });
+    } catch {
+      // Cancelled: nothing to do.
+    }
+  }
+
+  /** A new invite for the partner (the first one expired, or was never shown). */
+  protected async invitePartner(): Promise<void> {
+    await this.run(async () => {
       const code = await this.sharing.createInvite();
       this.view.set({ kind: 'invite', code, progress: { state: 'waiting' }, forMe: false });
     });
@@ -698,6 +1088,7 @@ export class SharingPage implements OnInit, OnDestroy {
       try {
         await this.sharing.removeDevice(device.id);
         this.tell('sharing.deviceRemoved');
+        this.suggestReplace.set(true);
       } finally {
         this.showMember(); // a pending removal stays listed as such
       }
@@ -710,6 +1101,14 @@ export class SharingPage implements OnInit, OnDestroy {
       .myDevices()
       .then((devices) => this.myDevices.set(devices))
       .catch(() => this.myDevices.set([]));
+    void this.sharing
+      .recoveryStatus()
+      .then((status) => this.recoveryStatus.set(status))
+      .catch(() => this.recoveryStatus.set(null));
+    void this.sharing
+      .hasPartner()
+      .then((partner) => this.canInvite.set(!partner))
+      .catch(() => this.canInvite.set(false));
   }
 
   protected async leave(): Promise<void> {
@@ -823,11 +1222,15 @@ export class SharingPage implements OnInit, OnDestroy {
     if (progress.state === 'joined') {
       const name = this.partnerName();
       this.showMember();
-      if (progress.ownDevice) this.tell('sharing.joinedOwnDevice');
-      else
-        void this.notice.show(
-          name ? this.t.t('sharing.joined', { name }) : this.t.t('sharing.joinedNoName'),
-        );
+      if (progress.ownDevice) {
+        this.tell('sharing.joinedOwnDevice');
+        return;
+      }
+      void this.notice.show(
+        name ? this.t.t('sharing.joined', { name }) : this.t.t('sharing.joinedNoName'),
+      );
+      // Each person has their own recovery key (§8): the partner makes theirs now.
+      await this.showNewKey(false, 'member');
       return;
     }
     if (progress.state === 'gone') {
@@ -878,8 +1281,22 @@ export function errorKey(error: unknown): MessageKey {
       return 'sharing.error.newKey';
     case 'removalPending':
       return 'sharing.error.removalPending';
+    case 'keyChangePending':
+      return 'sharing.error.keyChangePending';
     case 'inviteMismatch':
       return 'sharing.error.inviteUnavailable';
+    case 'invalidRecoveryKey':
+      return 'sharing.error.invalidRecoveryKey';
+    case 'unknownRecoveryKey':
+      return 'sharing.error.unknownRecoveryKey';
+    case 'recoveryMismatch':
+      return 'sharing.error.recoveryMismatch';
+    case 'noRecoveryKey':
+      return 'sharing.error.noRecoveryKey';
+    case 'recoveryNotReady':
+      return 'sharing.error.recoveryNotReady';
+    case 'olderKeysMissing':
+      return 'sharing.error.olderKeysMissing';
     default:
       return error instanceof TypeError ? 'sharing.error.network' : 'sharing.error.generic';
   }

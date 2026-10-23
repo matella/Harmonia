@@ -57,7 +57,7 @@ Library: **libsodium.js** (`libsodium-wrappers`, standard build, WASM). It runs 
 | Key delivery to a device | `crypto_box_seal(K[epoch], devicePublicKey)` |
 | Photos | Per-file random key; `crypto_secretstream_xchacha20poly1305` in 64 KiB chunks (resumable, constant memory); the file key is stored inside the encrypted media record |
 | Invite secret | 32 random bytes, sent only in a URL fragment or QR code; `crypto_kdf` derives the invite key |
-| Recovery key | 184 random bits plus a 16-bit checksum, shown as grouped Crockford base32 (§8); BLAKE2b then `crypto_kdf` derive the lookup ID and the wrapping key. No password stretching is needed, which matters because the standard build has no `crypto_pwhash`. |
+| Recovery key | 184 random bits plus a 16-bit checksum, shown as grouped Crockford base32 (§8); BLAKE2b then `crypto_kdf` derive the lookup ID and the seed of an X25519 key pair; each epoch's key is sealed to its public half (revised in phase 4, §8). No password stretching is needed, which matters because the standard build has no `crypto_pwhash`. |
 | Safety code | Keyed `crypto_generichash`, keyed with a subkey of the invite secret, over both devices' **signing and encryption** public keys and the invite ID. Shown as 6 digits on both screens. The server never sees the secret, so it can't swap an encryption key unnoticed or grind key pairs offline to match the digits. |
 
 **Key storage:** `@aparajita/capacitor-secure-storage` 8.x (iOS Keychain, Android Keystore). To verify in the spike:
@@ -215,12 +215,57 @@ Every rotation also re-wraps each person's recovery envelope (§8, phase 4). Wit
 3. Removing a device: `rotate`, signed envelopes from other devices, skipping old-epoch writes, repair, and the key bundle in invites.
 
 ## 8. Recovery key
+
+*Revised 2026-10-23 (phase 4), before building it. The first version wrapped `K` with a symmetric key derived from the recovery key, which only its owner can compute, so no other device could re-wrap a new key after a rotation (§7.8). Recovery would have broken at the first removal. The recovery key now also yields a key pair, and anyone in the space can seal new keys to its public half.*
+
+**The key**
 - 184 random bits plus a 16-bit checksum (25 bytes), shown as **8 groups of 5 Crockford base32 characters**, for example `K7QX2-…`. It's language-neutral (no English word list) and typo-tolerant: O reads as 0, I and L as 1, and the checksum rejects typos.
-- It's shown once, when sharing is turned on. The user must confirm it by typing back two groups. They can copy it or save it as a file, and print it as an option. It can be shown again on a device that's already a member.
-- The server stores, per person, `lookupId = KDF(recoveryKey, "lookup")` and `K[epoch]` sealed with `KDF(recoveryKey, "wrap")`. It never stores the key itself.
-- **To recover:** on a new device, enter the key. The device fetches the envelope by lookup ID, registers as a device of that person, and is admitted.
-- **Also possible:** the partner re-invites you from their device. In a couple, data isn't lost while either person has a device.
-- **Replacing the key** (if it may have been exposed): this creates a new key and a new epoch, and deletes the old envelope.
+- It derives three things:
+  - a **lookup ID** that the server stores to find the person's envelopes;
+  - an **X25519 key pair**;
+  - (nothing else; no password stretching is needed, the key is already random).
+
+**Where things live**
+- The **recovery public key** has its own end-to-end encrypted record (`recovery`, one per person, keyed by the person). It is written only when the key is set up or replaced, never by the name edits that rewrite the person record, so an old (perhaps exposed) public key can't come back through last-writer-wins. Other devices learn it from the space, never from the server.
+- The server keeps, per person, **only a hash of the lookup ID and a hash of the recovery public key**, in a table no member can read or change, reachable only through functions (like `device_credentials`), and the **recovery envelopes**: each epoch's `K` sealed to the recovery public key **and signed by the device that sealed it**. It never sees the key, the public key or the private half.
+- Each recovery envelope names the hash of the public key it was sealed to, and the server skips one that doesn't match the person's current key. Without this, a device that hadn't yet received a replaced public key would seal to the old one, and that envelope could never be repaired.
+- **The key is shown once and never stored on any device** (decided by the product owner, 2026-10-23). A stored copy would let a stolen phone that was removed from the space read it and recover itself straight back in. If the key is lost or may be exposed, any of my devices can create a new one with *Replace*.
+
+**When it's created**
+- When sharing is turned on (the inviter), and when a partner joins (each person has their own).
+- The step can't be skipped. The key is shown in 8 numbered groups with *Copy key* and *Save or send*, and the user confirms by typing back two of its groups.
+- *Save or send* hands the key to the share sheet as text (a password manager, notes, a file app): the app itself never writes it to a file. In the browser preview it downloads a text file.
+- Confirming makes **a key change that removes no device**: a new epoch, sealed to every device and to every recovery key, with the new lookup and public key hashes. Setting up and replacing are the same call. This way the newest key a recovering device receives was always signed by a device listed under an older key (see *To recover*).
+- A device that joins as one of my devices, or by recovery, doesn't create one: the person already has it.
+
+**Keeping it working:**
+- Every rotation also seals the new key to every person's recovery public key (§7.8), in the same all-or-nothing call. That covers removing a device, resuming an interrupted removal, *Delete all data* while sharing, and *Replace*.
+- **Repair** is also a key change that removes no device. After a sync, if the server reports a person with no recovery envelope for the current epoch and this device knows a public key with the hash the server expects, it rotates. (A single envelope would be signed by whoever repairs, possibly a device added in the current epoch, which a recovering device couldn't check.)
+- Only the public parts of a confirmed key are stored while its key change is pending (public key and the two hashes), in the same slot as a pending removal. So an interrupted setup or Replace is finished by the next sync, and the recovery key itself is never stored.
+- A person without a recovery key (setup interrupted, or a space from before phase 4) is skipped by rotations. They see a banner they can't dismiss until the key is set up.
+
+**To recover** (all my devices lost):
+1. On a new device, choose *Recover with your recovery key* and type it.
+2. The device registers, then calls `recover(lookup ID)`. The server admits it as a device of that person and returns that person's recovery envelopes for every epoch.
+3. It checks what it received before using it. It opens the envelopes (only members ever read the recovery public key, so an envelope that opens was sealed by one) and pulls with the **older keys** first. The **newest key** is accepted only if the device that signed its envelope is on the device list read so far and not removed (§7.3), with a valid signature. After pulling with it, the person the server named must hold the recovery record with this public key. Otherwise the device goes back to solo.
+   - If the newest epoch has no envelope yet for this person, recovery stops with "not ready yet": a device that knows the key repairs it on its next sync.
+   - Interrupted (closed mid-way), the recovery doesn't count: the screen offers it again and the server answers the same.
+   - Once `recover()` has answered, the server counts this device in that space even if the check then fails. Inviting or joining from it is refused until a recovery with that key completes (or the space is left).
+4. Then it becomes that person (as in §7.6), adopts the space's profile, files its own envelopes and syncs. No other device has to approve: holding the key is the proof.
+5. The server can't abuse this: it only has a hash of the lookup ID, and it can't open the envelopes.
+
+**Also possible:** the partner re-invites you from their device. In a couple, data isn't lost while either person has a device.
+
+**Replacing the key** (if it may have been exposed):
+1. A new key is made and kept as pending.
+2. It is shown and confirmed (two groups typed back).
+3. **Only then** one server call commits it: the new lookup hash, the old envelopes deleted, and a new epoch (a rotation that removes no device) with every device and recovery envelope.
+
+If confirmation never happens, the old key keeps working. The old key can open nothing written after the replacement, even if a hostile server kept its old envelopes.
+
+**Replace** refuses while a removal is pending, and when this device lacks an older epoch's key (the old recovery envelopes are deleted, so that history would be lost to recovery).
+
+**Anyone who ever saw the recovery key can come back** (recover a new device) until it is replaced (§11). After removing a lost or stolen device, the app suggests replacing the key.
 
 ## 9. Sync behaviour and limits
 - Sync runs on launch, on resume, after local changes (debounced), on pull-to-refresh, and when the network comes back. iOS doesn't allow background sync without push, so **the partner's widget updates only after the partner opens the app**. This is documented as a limit.
@@ -241,7 +286,9 @@ The privacy policy must describe the right-hand column. It is not accurate to sa
 - **Lost or stolen phone:** remove it from another device, which also changes the key. Data already on it stays readable without an app lock, so the PIN or biometric lock is planned.
 - **Malicious member:** they can read and edit everything by design. Recently deleted limits the damage from destructive edits.
 - **Compromised device (malware):** out of scope, since keys live in the app's memory while it runs.
-- **Recovery key leaked:** replace it (§8).
+- **Recovery key leaked:** anyone who has it can recover a device into the space until it is replaced (§8). Replace it, which also starts a new epoch. After a lost or stolen device is removed, the app suggests replacing it.
+- **Recovery with a hostile server and a removed device:** a recovering device trusts the newest key only if a device listed under the older keys, and not removed, signed it. Older keys are trusted because they open (the server never sees a recovery public key), so a removed device that read the public key could, with the server, slip a fake older key and fake older records into what the new device sees. That falls under faking the history the new device sees, which is out of scope; it can't read anything written after the removal.
+- **Person rows on the server:** the policy `persons_member_all` lets members change person rows directly. Nothing needs that; narrow it when touching it next.
 - **Hostile server colluding with a removed device:** a removal is written under the old key before the rotation, and devices read it before adopting a new key, so a key signed by the removed device is refused. Repair skips devices the server reports as removed. What remains is a server that withholds the removal record entirely while serving a key the removed device signed. That is out of scope: preventing it would need every rotation to be confirmed by a device the others already trust, without the server in between.
 
 ## 12. Obligations and costs
@@ -502,7 +549,7 @@ No screens yet; everything below is driven by tests.
 - `invite_claim` ignores expiry: an expired invite looked like "waiting" forever. The device now forgets an invite 24 hours after creating it.
 - After going back to solo on one device, the server still counts that device as a member until phase 3 adds leaving, so claiming an invite returns `alreadyInSpace`. The screen says so in words.
 
-**Before real users:** the recovery key (§8, phase 4) must exist, because §6.1 makes it a step that can't be skipped. `SYNC_CONFIG` stays null until then.
+**Before real users:** the recovery key (§8, phase 4) must exist, because §6.1 makes it a step that can't be skipped. `SYNC_CONFIG` stays null until then. *(Phase 4 built it; see below.)*
 
 ### Slice 3b: the sharing screens (2026-10-23)
 
@@ -673,7 +720,7 @@ Builds §7.3–7.5. In the shared state, *Your devices* lists this device and my
 **Not verified:**
 - From the app side: retrying after `epochChanged`, a crash right after `rotate`, and repair for a device added just before a rotation (the server functions are tested).
 - On a device: nothing in this slice ran on the emulator.
-- Recovery envelopes aren't re-wrapped yet: that's phase 4 (§7.8).
+- Recovery envelopes weren't re-wrapped yet: done in phase 4 (§7.8).
 
 **A third security review, fixed the same day:** before this, the record that marks a device removed was written under the *new* key. So a device catching up couldn't read it before deciding whether to trust that new key, and a key signed by the removed device would have been accepted. Now the removal is written under the old key first. Every device pulls with the keys it holds before adopting a new epoch, and repair runs after the pull. Live test: the server swaps Sam's envelope for a key the removed tablet chose and signed, and Sam refuses it; with the honest envelope back, Sam adopts the real key.
 
@@ -689,6 +736,24 @@ Builds §7.3–7.5. In the shared state, *Your devices* lists this device and my
   - once the rotation goes through, the date arrives under the new epoch.
 
 **Phase 3's done-when** ("the removed device can't decrypt new records; both keep data after dissolving") is met in live tests against the local stack, not yet on devices.
+
+### Phase 4: the recovery key (2026-10-23)
+
+Built as revised in §8 (key pair, separate `recovery` record, hashed lookups, signed envelopes).
+- **Server** (`20261023000700_recovery.sql`): `recovery_lookups` (lookup and public key hashes, no member access), recovery envelopes per person, `recover()` (admits the device as that person; asking again from the same device returns the same answer), `persons_missing_recovery_envelope()`, and `rotate()` taking recovery envelopes and an optional new lookup. Envelopes sealed to an outdated public key, or for a person without a key, are skipped.
+- **Device:** local migration 5 (`space_recovery`), the `recovery` record type (capability 3), `deriveRecoveryKeys` (lookup and X25519 pair from the key), `Sharing.recoveryStatus / createRecoveryKey / confirmRecoveryKey / recover`, recovery envelopes in every rotation, and repair by rotation.
+- **Screens:** after *Create an invite*, the key comes first and can't be skipped; a partner who joins makes theirs next. Until a partner has joined, the shared screen also offers *Invite your partner* (the first invite may have expired, or never been shown if the key screen was left). On the shared screen: a banner while my person has no key, then a *Recovery key* section with *Replace recovery key*, and a suggestion to replace it after removing a device. *Recover with your recovery key* on the off screen. EN, FR and NL.
+
+**Tests:**
+- PGlite (`recovery.test.ts`, 4): setup by rotation, hashes out of members' reach; only envelopes for the current public key are kept; repair; recover and asking again; Replace, after which the old key recovers nothing and a rotation sealed to the old public key leaves the person missing.
+- sql.js (`sharing.test.ts`): nothing changes until the two groups match; groups typed loosely; a mistyped key refused before the server; an interrupted recovery counts as off and blocks syncing.
+- **Live, local stack:** Alex sets up a key, Sam joins and sets up theirs; a new phone recovers as Alex with the key typed in lower case and gets every date; both directions sync; removing the lost phone seals the new key to both recovery keys; Replace makes the old key unknown; a newest envelope whose signer was changed on the server is refused and the device stays solo; with the honest signer back, recovery works; a deleted recovery envelope is repaired by a key change on Sam's next sync, which the others adopt.
+- Page spec: the key's numbered groups, confirmation, mismatch message, invite after confirming, banner, Replace and cancel, suggestion after a removal, recovering.
+- **Browser preview against the local stack:** turning sharing on showed the key, confirming it saved the hashes and both epochs' envelopes on the server, then showed the invite.
+
+- **Live, interrupted setup:** with the server's key change unavailable, the confirmed key waits as "saving" and the next sync finishes it (a new phone then recovers with it); with the reply lost after the server made a Replace, the next sync still writes the new public key, a later key change from another device leaves nobody missing, the old key is unknown and the new one recovers.
+
+**Not verified:** on the emulator or any device; the share sheet for *Save or send*.
 
 ### Delete all data while sharing (2026-10-23)
 

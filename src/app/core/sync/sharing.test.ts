@@ -10,11 +10,13 @@ import { MemorySecureKeyStore } from '../platform/secure-key-store';
 import { DeviceKeysUnavailableError, DeviceSession } from './device-session';
 import { toBase64 } from './encoding';
 import { Sharing, SharingEndedError } from './sharing';
-import type { SyncCrypto } from './sync-crypto-port';
+import { loadSyncCrypto, type SyncCrypto } from './sync-crypto-port';
 import { SyncStore } from './sync-store';
 
 /** Parts of the sharing flow that need no server (the rest is tested live). */
-async function setUp() {
+const setUp = () => setUpWith({} as SyncCrypto);
+
+async function setUpWith(crypto: SyncCrypto) {
   const driver = await SqlJsDriver.open();
   await migrate(driver);
   const clock = new MutableClock('2026-10-23T10:00:00Z', 'Europe/Brussels');
@@ -27,7 +29,7 @@ async function setUp() {
     store: new SyncStore(driver, clock, journal),
     profiles: new RelationshipRepository(driver, clock, newId, journal),
     session: offline,
-    crypto: {} as SyncCrypto,
+    crypto,
     secrets,
     defaults: () => ({ calendarTimeZoneId: 'Europe/Brussels' }),
   });
@@ -72,7 +74,10 @@ describe('sharing without a server', () => {
 });
 
 /** A device that is a member of a space, talking to a scripted server. */
-async function member(answers: Record<string, { data: unknown; error: unknown }>) {
+async function member(
+  answers: Record<string, { data: unknown; error: unknown }>,
+  crypto = {} as SyncCrypto,
+) {
   const driver = await SqlJsDriver.open();
   await migrate(driver);
   const clock = new MutableClock('2026-10-23T10:00:00Z', 'Europe/Brussels');
@@ -101,15 +106,16 @@ async function member(answers: Record<string, { data: unknown; error: unknown }>
   const session = {
     connect: async () => ({ client, keys: {}, deviceId: 'device-1' }),
   } as unknown as DeviceSession;
+  const secrets = new MemorySecureKeyStore();
   const sharing = new Sharing({
     store,
     profiles,
     session,
-    crypto: {} as SyncCrypto,
-    secrets: new MemorySecureKeyStore(),
+    crypto,
+    secrets,
     defaults: () => ({ calendarTimeZoneId: 'Europe/Brussels' }),
   });
-  return { store, profiles, sharing, calls };
+  return { store, profiles, sharing, calls, secrets };
 }
 
 const SPACE_ID = '7d0c3b8e-1f2a-4c5d-9e6f-0a1b2c3d4e5f';
@@ -150,5 +156,60 @@ describe('leaving and noticing the end', () => {
       await expect(sharing.sync()).rejects.not.toBeInstanceOf(SharingEndedError);
       expect(await store.state()).not.toBeNull();
     }
+  });
+});
+
+describe('the recovery key, before the server', () => {
+  it('changes nothing until the two groups typed back match', async () => {
+    const { sharing, secrets, calls } = await member({}, await loadSyncCrypto());
+    await expect(sharing.confirmRecoveryKey(['A', 'B'])).rejects.toMatchObject({
+      code: 'noRecoveryKey',
+    });
+    const created = await sharing.createRecoveryKey();
+    expect(created.groups).toHaveLength(8);
+    expect(created.display).toBe(created.groups.join('-'));
+    const [a, b] = created.ask;
+    expect(a).toBeLessThan(b);
+    const wrong = created.groups[a] === '00000' ? '11111' : '00000';
+    await expect(sharing.confirmRecoveryKey([created.groups[a], wrong])).rejects.toMatchObject({
+      code: 'recoveryMismatch',
+    });
+    expect(calls).toEqual([]);
+    expect(await secrets.get('sharing.rotation')).toBeNull();
+    expect(await sharing.recoveryStatus()).toBe('missing');
+  });
+
+  it('accepts the groups typed loosely (case, spaces, O for 0, I or L for 1)', async () => {
+    const { sharing, calls } = await member({ membership: OFFLINE }, await loadSyncCrypto());
+    const created = await sharing.createRecoveryKey();
+    const [a, b] = created.ask;
+    const loose = (group: string) =>
+      ` ${group.toLowerCase().replace(/0/g, 'o').replace(/1/g, 'l')} `;
+    // Past the check, it needs the server: offline here.
+    await expect(
+      sharing.confirmRecoveryKey([loose(created.groups[a]), loose(created.groups[b])]),
+    ).rejects.toMatchObject({ code: 'network' });
+    expect(calls).toEqual(['membership']);
+  });
+
+  it('refuses a mistyped key before contacting the server', async () => {
+    const crypto = await loadSyncCrypto();
+    const local = await setUpWith(crypto);
+    await expect(local.sharing.recover('K7QX2-ABCDE')).rejects.toMatchObject({
+      code: 'invalidRecoveryKey',
+    });
+    const typo = crypto.generateRecoveryKey().display.replace(/^./, (c) => (c === 'A' ? 'B' : 'A'));
+    await expect(local.sharing.recover(typo)).rejects.toMatchObject({
+      code: 'invalidRecoveryKey',
+    });
+    expect(await local.sharing.status()).toBe('off');
+  });
+
+  it('treats an interrupted recovery as not started, and syncs nothing meanwhile', async () => {
+    const { sharing, secrets, calls } = await member({});
+    await secrets.set('sharing.recover', JSON.stringify({ spaceId: SPACE_ID, personId: 'p' }));
+    expect(await sharing.status()).toBe('off');
+    await expect(sharing.sync()).rejects.toMatchObject({ code: 'joinInProgress' });
+    expect(calls).toEqual([]);
   });
 });

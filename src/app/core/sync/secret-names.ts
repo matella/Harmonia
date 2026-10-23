@@ -15,6 +15,7 @@ export const SHARING_SECRETS = {
   invite: 'sharing.invite',
   join: 'sharing.join',
   rotation: 'sharing.rotation',
+  recover: 'sharing.recover',
 } as const;
 
 /** The Supabase session is kept under this storage key (prefixed with `auth.`). */

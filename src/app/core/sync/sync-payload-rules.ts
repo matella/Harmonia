@@ -38,6 +38,7 @@ const publicKey = (value: SqlValue) =>
   typeof value === 'string' && /^[A-Za-z0-9+/]{43}=$/.test(value);
 
 const RULES: Readonly<Partial<Record<SyncedRecordType, (p: Payload) => boolean>>> = {
+  recovery: (p) => publicKey(p['public_key']),
   device: (p) =>
     (p['person_id'] === null ||
       (typeof p['person_id'] === 'string' && UUID.test(p['person_id']))) &&

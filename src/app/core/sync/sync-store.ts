@@ -18,6 +18,7 @@ export const PHASE2_TYPES: readonly SyncedRecordType[] = [
   'person',
   'milestone',
   'device',
+  'recovery',
 ];
 
 /** A device of the space and its public keys (base64), from the end-to-end device list. */
@@ -335,6 +336,31 @@ export class SyncStore {
     });
   }
 
+  /** Writes a person's recovery public key (base64) when it is set up or replaced (§8). */
+  async writeRecovery(personId: string, publicKey: string): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const version = await this.journal.stamp(tx);
+      const author = await this.journal.selfPersonId(tx);
+      const now = this.clock.now().toString();
+      await tx.run(
+        `INSERT INTO space_recovery (id, public_key, version, author_person_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET public_key = excluded.public_key, version = excluded.version,
+           author_person_id = excluded.author_person_id, updated_at = excluded.updated_at`,
+        [personId, publicKey, version, author, now, now],
+      );
+      await this.journal.changed(tx, 'recovery', personId, version);
+    });
+  }
+
+  /** Every person's recovery public key (base64), by person. */
+  async recoveryKeys(): Promise<Map<string, string>> {
+    const rows = await this.db.query<{ id: string; public_key: string }>(
+      'SELECT id, public_key FROM space_recovery',
+    );
+    return new Map(rows.map((r) => [r.id, r.public_key]));
+  }
+
   /** The device list of the space, as received end to end. */
   async devices(): Promise<SpaceDevice[]> {
     const rows = await this.db.query<{
@@ -412,6 +438,7 @@ export class SyncStore {
       await tx.run('DELETE FROM outbox');
       await tx.run('DELETE FROM sync_state');
       await tx.run('DELETE FROM space_devices');
+      await tx.run('DELETE FROM space_recovery');
       await tx.run('UPDATE persons SET is_placeholder = 1 WHERE is_self = 0');
     });
   }
