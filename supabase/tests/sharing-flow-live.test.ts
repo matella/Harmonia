@@ -395,6 +395,33 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
     expect((await alexPhone.store.state())!.epoch).toBe(2);
     expect((await alexPhone.sharing.myDevices()).map((d) => d.id)).not.toContain(tablet.deviceId);
 
+    // Before Sam has synced, the server swaps Sam's envelope for a key the removed tablet
+    // chose and signed. Sam learns of the removal first (it was written under the old
+    // key), so it refuses the tablet's key.
+    const samDevice = await sam.session.connect();
+    const honest = psql(
+      `select translate(encode(sealed, 'base64'), E'\n', '') || ' ' || translate(encode(signature, 'base64'), E'\n', '') || ' ' || signer_device_id
+       from key_envelopes where device_id = '${samDevice.deviceId}' and epoch = 2`,
+    )
+      .replace(/\s+/g, ' ')
+      .trim()
+      .split(' ');
+    const chosen = crypto.sealSpaceKey(crypto.newSpaceKey(), samDevice.keys.boxPublicKey);
+    const tabletSigned = crypto.sign(
+      envelopeMessage(space, 2, samDevice.deviceId, chosen),
+      tablet.keys,
+    );
+    const setEnvelope = (sealed: string, signature: string, signer: string) =>
+      psql(`update key_envelopes set sealed = decode('${sealed}', 'base64'), signature = decode('${signature}', 'base64'),
+             signer_device_id = '${signer}' where device_id = '${samDevice.deviceId}' and epoch = 2;`);
+    setEnvelope(toBase64(chosen), toBase64(tabletSigned), tablet.deviceId);
+    await expect(sam.sharing.sync()).rejects.toMatchObject({ code: 'newKeyNotTrusted' });
+    expect((await sam.store.state())!.epoch).toBe(1);
+    expect(
+      (await sam.store.devices()).find((d) => d.id === tablet.deviceId)?.revokedAt,
+    ).not.toBeNull();
+    setEnvelope(honest[0], honest[1], honest[2]);
+
     // Sam takes the new key from the envelope Alex's phone sealed and signed.
     await sam.sharing.sync();
     expect((await sam.store.state())!.epoch).toBe(2);
@@ -464,7 +491,6 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
     ).toBeNull();
 
     // A key planted by the server and signed by the removed tablet is never adopted.
-    const samDevice = await sam.session.connect();
     const planted = crypto.sealSpaceKey(crypto.newSpaceKey(), samDevice.keys.boxPublicKey);
     const tabletSignature = crypto.sign(
       envelopeMessage(space, 4, samDevice.deviceId, planted),

@@ -425,20 +425,32 @@ export class Sharing {
     // Before anything else (a member without its key must still learn this): after a
     // dissolve, pulls just return nothing, so the end must be asked for explicitly.
     const membership = await this.checkStillMember(api);
-    try {
-      await this.adoptNewEpochs(api, membership);
-    } catch (error) {
-      if (!(error instanceof SharingError && error.code === 'newKeyNotTrusted')) throw error;
-      // The device that rotated may not be on this device's list yet: pull what the keys
-      // in hand can read (it stops at the new epoch's records), then try once more.
-      await this.loadKeys(api);
-      await this.engine(device.client).sync({ pullOnly: true });
-      await this.adoptNewEpochs(api, membership);
-    }
+    await this.catchUp(api, device, membership);
     await this.loadKeys(api);
     await this.writeOwnDevice(device, membership?.personId ?? null);
+    const report = await this.engine(device.client).sync();
+    // After the pull, so the device list it seals to is as fresh as this device can know.
     await this.repairEnvelopes(api, device);
-    return this.engine(device.client).sync();
+    return report;
+  }
+
+  /**
+   * Before trusting a newer epoch's key: read everything the keys in hand can (the pull
+   * stops at the new epoch's records). A removal is written under the old key before the
+   * rotation (§7.4), so this device already knows who was removed, and refuses a key
+   * signed by them, before it adopts anything.
+   */
+  private async catchUp(
+    api: SpaceApi,
+    device: ConnectedDevice,
+    membership: Membership | null,
+  ): Promise<void> {
+    const state = await this.deps.store.state();
+    if (state && membership?.epoch && membership.epoch > state.epoch) {
+      await this.loadKeys(api);
+      await this.engine(device.client).sync({ pullOnly: true });
+    }
+    await this.adoptNewEpochs(api, membership);
   }
 
   /** My devices in the space, from the end-to-end device list (§7.7: only mine on screen). */
@@ -460,12 +472,18 @@ export class Sharing {
     if (!(await this.deps.store.state())) throw new SharingError('notSharing');
     const device = await this.deps.session.connect();
     const api = new SpaceApi(device.client);
-    await this.adoptNewEpochs(api, await this.checkStillMember(api));
+    await this.catchUp(api, device, await this.checkStillMember(api));
+    await this.loadKeys(api);
     const state = (await this.deps.store.state())!;
-    const listed = (await this.deps.store.devices()).filter((d) => !d.revokedAt);
-    if (targetId === device.deviceId || !listed.some((d) => d.id === targetId)) {
+    const known = await this.deps.store.devices();
+    if (targetId === device.deviceId || !known.some((d) => d.id === targetId)) {
       throw new SharingError('unknownDevice');
     }
+    const listed = known.filter((d) => !d.revokedAt);
+    // Tell every device first, under the key they already hold, so none of them trusts a
+    // new key signed by the removed device before it learns of the removal (§7.4).
+    await this.deps.store.markDeviceRemoved(targetId);
+    await this.engine(device.client).sync();
 
     let pending = await this.read<PendingRotation>(NAMES.rotation);
     if (!pending || pending.from !== state.epoch || pending.target !== targetId) {

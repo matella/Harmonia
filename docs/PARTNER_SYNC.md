@@ -182,14 +182,15 @@ Envelopes gain a `signer_device_id`. A device trusts an envelope only if its sig
 A device whose signer was itself removed later can't verify that older envelope. That happens only if the device missed two rotations and the first remover was removed afterwards. It then shows that it can't open the new key, and adding it again fixes it.
 
 ### 7.4 Removing a device (§6.4)
+0. The removing device first writes the removed device's record with `revoked_at` **under the current key `K[n]`** and uploads it. Every other device can read that record with the key it already holds, so it knows who was removed before it is offered a new key.
 1. The removing device creates `K[n+1]` and **stores it locally first**.
 2. It seals `K[n+1]` to every remaining device on its verified list (and to itself), signing each envelope.
 3. **One server call does the rest, all or nothing:** `rotate(target, expected_epoch, envelopes)`. In one transaction it checks that the space is still at `expected_epoch`, marks X revoked (its requests stop working), starts epoch `n+1` and stores the envelopes. Each target must be a non-revoked device of the space, and the signer must be the caller (`current_device_id()`). If another removal got there first, the epochs no longer match and it refuses: the device syncs to the new epoch and tries again. A crash before the call leaves nothing on the server; a crash after it is finished by the repair step below.
-4. It then writes X's device record with `revoked_at`, under `K[n+1]`.
+4. (X's record already says it was removed: step 0.)
 5. **From then on the server skips record writes under an older epoch silently**, like stale and far-future ones, so one such row never fails an upload. The engine sees that the write didn't land, and the change stays queued until the device has the new key.
-6. Every other device notices on its next sync: `membership()` reports a newer epoch. It opens its envelope for that epoch, checks the signer as in 7.3, stores the key and moves to the new epoch. If the envelope can't be trusted, it doesn't adopt it, writes nothing, and shows that sharing needs attention.
+6. Every other device notices on its next sync: `membership()` reports a newer epoch. It **first pulls everything the keys it holds can read**, which brings in X's removal (step 0). It then opens its envelope for the new epoch, checks the signer as in 7.3 (X no longer counts) and moves to the new epoch. If the envelope can't be trusted, it doesn't adopt it, writes nothing, and shows that it can't open the new key.
 
-**Repair:** on each sync, a member asks which devices of the space have no envelope for the current epoch (a members-only function). It seals the current key to those that are on its verified list and not revoked. This covers a device added just before a rotation, a device whose record hadn't arrived yet, and a partial failure.
+**Repair:** on each sync, after pulling, a member asks which devices of the space have no envelope for the current epoch (a members-only function). It seals the current key to those that are on its verified list and not revoked. This covers a device added just before a rotation, a device whose record hadn't arrived yet, and a partial failure.
 
 The removed device keeps what it already downloaded (§6.4). It can't read anything new: it never receives `K[n+1]`, and the server stops serving it.
 
@@ -203,7 +204,7 @@ Records keep the epoch they were written under; members keep old keys to read hi
 - Both screens show the same safety code, exactly as with a partner.
 
 ### 7.7 Whose devices can be removed (decided 2026-10-23)
-Removing the partner's only phone would end sharing for them without dissolving the space: a second, harsher kind of breakup next to *Leave* (§6.5). **Decided by the product owner: the screen offers removal only for my own devices; a partner ends things with Leave.** The server still allows any member to remove any device of the space, so a lost phone can be removed even from the partner's device if ever needed.
+Removing the partner's only phone would end sharing for them without dissolving the space: a second, harsher kind of breakup next to *Leave* (§6.5). **Decided by the product owner: the screen offers removal only for my own devices; a partner ends things with Leave.** The server still allows any member to remove any device of the space, so a lost phone can be removed even from the partner's device if ever needed. That is intentional, not an oversight (security reviews flagged it).
 
 ### 7.8 Rotation and recovery
 Every rotation also re-wraps each person's recovery envelope (§8, phase 4). Without that, recovery breaks after a removal.
@@ -241,7 +242,7 @@ The privacy policy must describe the right-hand column. It is not accurate to sa
 - **Malicious member:** they can read and edit everything by design. Recently deleted limits the damage from destructive edits.
 - **Compromised device (malware):** out of scope, since keys live in the app's memory while it runs.
 - **Recovery key leaked:** replace it (§8).
-- **Hostile server colluding with a removed device:** it could withhold the record that marks the device removed from another member, so that member keeps sealing keys to it during repair. Repair therefore also skips devices the server reports as revoked. Beyond that this is out of scope.
+- **Hostile server colluding with a removed device:** a removal is written under the old key before the rotation, and devices read it before adopting a new key, so a key signed by the removed device is refused. Repair skips devices the server reports as removed. What remains is a server that withholds the removal record entirely while serving a key the removed device signed. That is out of scope: preventing it would need every rotation to be confirmed by a device the others already trust, without the server in between.
 
 ## 12. Obligations and costs
 - **Domain and website:**
@@ -673,6 +674,8 @@ Builds §7.3–7.5. In the shared state, *Your devices* lists this device and my
 - From the app side: retrying after `epochChanged`, a crash right after `rotate`, and repair for a device added just before a rotation (the server functions are tested).
 - On a device: nothing in this slice ran on the emulator.
 - Recovery envelopes aren't re-wrapped yet: that's phase 4 (§7.8).
+
+**A third security review, fixed the same day:** before this, the record that marks a device removed was written under the *new* key. So a device catching up couldn't read it before deciding whether to trust that new key, and a key signed by the removed device would have been accepted. Now the removal is written under the old key first. Every device pulls with the keys it holds before adopting a new epoch, and repair runs after the pull. Live test: the server swaps Sam's envelope for a key the removed tablet chose and signed, and Sam refuses it; with the honest envelope back, Sam adopts the real key.
 
 **Phase 3's done-when** ("the removed device can't decrypt new records; both keep data after dissolving") is met in live tests against the local stack, not yet on devices.
 
