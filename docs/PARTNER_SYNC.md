@@ -269,7 +269,8 @@ If confirmation never happens, the old key keeps working. The old key can open n
 
 ## 9. Sync behaviour and limits
 - Sync runs on launch, on resume, after local changes (debounced), on pull-to-refresh, and when the network comes back. iOS doesn't allow background sync without push, so **the partner's widget updates only after the partner opens the app**. This is documented as a limit.
-- Photos: a decrypted 2048 px image plus a thumbnail on each device; only encrypted originals are uploaded. A storage quota applies per space (to decide, for example 2 GB).
+- Photos: a 2048 px image plus a thumbnail on each device. **Only the 2048 px version is uploaded, encrypted** (not the camera original, which is often 3–5 MB), so a space holds roughly 2,000–4,000 photos.
+- **Storage limit: 2 GB per space** (decided by the product owner, 2026-10-23). It counts only the encrypted photos on the server, for the couple together; text records and photos on each phone don't count. The server enforces it on every upload, and it is one server setting, so it can change without an app update. When it's reached, a new photo stays on the phone that took it and isn't shared, with a message; everything else keeps syncing, and deleting shared photos frees space.
 - Offline edits wait in the outbox and are merged by HLC when the device reconnects.
 
 ## 10. What the server can and cannot see
@@ -300,7 +301,7 @@ The privacy policy must describe the right-hand column. It is not accurate to sa
 - **Store and legal:**
   - In-app deletion of sync data: leave or dissolve deletes the server copy, whatever Apple's account rules turn out to be.
   - Privacy policy, Play Data safety and the App Store privacy label: check the current wording. Don't assume end-to-end encrypted data is exempt from disclosure, or that GDPR doesn't apply. EU hosting, a data processing agreement with Supabase, and a list of processors are required.
-- **Cost:** a Supabase Pro project (fixed monthly fee) plus storage and egress for encrypted photos. Estimate it from the quota per space × the expected number of couples before launch.
+- **Cost:** a Supabase Pro project (fixed monthly fee) plus storage and egress for encrypted photos. Estimate it from the limit (2 GB per space) × the expected number of couples before launch; most couples will stay well below it.
 - **Analytics:** possible opt-in events such as `sharing_enabled`, `device_added` and `space_left`, as booleans only. Add them to `usage-events.ts` when they're implemented.
 
 ## 13. Phased plan
@@ -319,8 +320,7 @@ The privacy policy must describe the right-hand column. It is not accurate to sa
 The product questions (joining with existing data, edit rights and trash, partner reminders) were decided on 2026-10-21; see the list at the top. Still open:
 1. **Server:** Supabase EU (recommended to start) or self-hosted.
 2. **Domain** for invite links, the privacy policy and support. It blocks links, but not QR invites.
-3. **Photo storage quota** per space and the pricing impact.
-4. **App lock** (PIN or biometrics): recommended in the same release as sharing.
+3. **App lock** (PIN or biometrics): recommended in the same release as sharing.
 
 ## 15. Phase 0 spike results (2026-10-21)
 
