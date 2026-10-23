@@ -7,7 +7,10 @@ import { DEV_SYNC_CONFIG } from '../platform/sync-dev-config';
 import type { InviteProgress, JoinProgress, Sharing, SharingStatus } from '../sync/sharing';
 import type { SyncReport } from '../sync/sync-engine';
 import { SerialQueue } from '../persistence/sql-driver';
+import { AppStore } from '../state/app-store';
 import { DatabaseService } from './database.service';
+import { I18nService } from './i18n.service';
+import { NoticeService } from './notice.service';
 import { SyncService } from './sync.service';
 import { CLOCK } from './tokens';
 
@@ -45,6 +48,9 @@ export class SharingService {
   private readonly db = inject(DatabaseService);
   private readonly sync = inject(SyncService);
   private readonly clock = inject(CLOCK);
+  private readonly store = inject(AppStore);
+  private readonly notice = inject(NoticeService);
+  private readonly t = inject(I18nService).translator;
   private loading: Promise<Sharing> | null = null;
   /** Syncs run one after another, never side by side. */
   private readonly queue = new SerialQueue();
@@ -151,13 +157,33 @@ export class SharingService {
     await this.refresh();
   }
 
-  syncNow(): Promise<SyncReport> {
+  /** 'ended' when the server said sharing is over; this device has then gone solo. */
+  syncNow(): Promise<SyncReport | 'ended'> {
     return this.queue.run(async () => {
-      const report = await (await this.sharing()).sync();
+      const partner = this.store.profile()?.displayName ?? null;
+      let report: SyncReport;
+      try {
+        report = await (await this.sharing()).sync();
+      } catch (error) {
+        if ((error as { code?: unknown } | null)?.code !== 'sharingEnded') throw error;
+        await this.afterChange();
+        void this.notice.show(
+          partner ? this.t.t('sharing.ended', { name: partner }) : this.t.t('sharing.endedNoName'),
+        );
+        return 'ended';
+      }
       if (report.changedTypes.length > 0)
         await this.sync.afterChange({ quiet: true, remote: true });
       await this.refresh();
       return report;
+    });
+  }
+
+  /** Leaves the space for both people; this device keeps everything. */
+  leave(): Promise<void> {
+    return this.queue.run(async () => {
+      await (await this.sharing()).leave();
+      await this.afterChange();
     });
   }
 

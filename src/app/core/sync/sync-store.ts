@@ -243,11 +243,16 @@ export class SyncStore {
   /**
    * Turns this device back into a solo device: sharing state and the outbox go, every
    * record stays (§6.5). Also the way out when the space key is gone.
+   *
+   * The other people become placeholders: they still show here ("You and Sam"), but as
+   * names typed on this device, so sharing later with someone else never uploads them and
+   * the next partner's own name replaces them.
    */
   async leaveLocally(): Promise<void> {
     await this.db.transaction(async (tx) => {
       await tx.run('DELETE FROM outbox');
       await tx.run('DELETE FROM sync_state');
+      await tx.run('UPDATE persons SET is_placeholder = 1 WHERE is_self = 0');
     });
   }
 

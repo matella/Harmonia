@@ -41,6 +41,15 @@ export interface AcceptedInvite extends SpaceMembership {
   envelope: Uint8Array;
 }
 
+/** Where the server says this device belongs (`membership()`). */
+export interface Membership {
+  deviceId: string;
+  revoked: boolean;
+  spaceId: string | null;
+  personId: string | null;
+  epoch: number | null;
+}
+
 export interface SealedEnvelope {
   spaceId: string;
   epoch: number;
@@ -146,6 +155,33 @@ export class SpaceApi {
       sealed_key: toBytea(sealedKey),
       signature: toBytea(signature),
     });
+  }
+
+  /** Null when the calling user has no device row at all (nothing can be concluded). */
+  async membership(): Promise<Membership | null> {
+    const rows = await this.call<
+      {
+        device_id: string;
+        revoked: boolean;
+        space_id: string | null;
+        person_id: string | null;
+        epoch: number | null;
+      }[]
+    >('membership', 'membership', {});
+    const row = rows?.[0];
+    if (!row) return null;
+    return {
+      deviceId: row.device_id,
+      revoked: row.revoked,
+      spaceId: row.space_id,
+      personId: row.person_id,
+      epoch: row.epoch,
+    };
+  }
+
+  /** Ends the space for everyone: the server deletes it with all its records (§6.5). */
+  async dissolveSpace(): Promise<void> {
+    await this.call('dissolveSpace', 'dissolve_space', {});
   }
 
   /** The space keys sealed to this device (row-level security returns only its own). */

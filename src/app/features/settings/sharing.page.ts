@@ -14,6 +14,7 @@ import type { StartOfRelationship } from '../../core/sync/sync-store';
 import type { InviteProgress, JoinProgress } from '../../core/sync/sharing';
 import { I18nService } from '../../core/services/i18n.service';
 import { NoticeService } from '../../core/services/notice.service';
+import { DataExportService } from '../../core/services/data-export.service';
 import { SharingService } from '../../core/services/sharing.service';
 import { AppStore } from '../../core/state/app-store';
 import { I18N_PIPES, type MessageKey } from '../../shared/pipes/i18n.pipes';
@@ -336,6 +337,30 @@ const POLL_MS = 3000;
               </div>
               <p class="hm-section__hint" role="status">{{ syncStatus() }}</p>
             </section>
+            <section class="hm-section danger-zone" aria-labelledby="leave-heading">
+              <h2 id="leave-heading" class="hm-section__title">{{ 'sharing.leaveTitle' | t }}</h2>
+              <p class="hm-section__hint">{{ 'sharing.leaveHint' | t }}</p>
+              <div class="actions">
+                <button
+                  type="button"
+                  class="hm-btn hm-btn--outline"
+                  [disabled]="busy()"
+                  (click)="exportFirst()"
+                >
+                  <ion-icon name="download-outline" aria-hidden="true" />{{
+                    'sharing.exportFirst' | t
+                  }}
+                </button>
+                <button
+                  type="button"
+                  class="hm-btn hm-btn--danger"
+                  [disabled]="busy()"
+                  (click)="leave()"
+                >
+                  {{ 'sharing.leave' | t }}
+                </button>
+              </div>
+            </section>
           }
 
           @case ('noKey') {
@@ -431,6 +456,11 @@ const POLL_MS = 3000;
       gap: var(--hm-space-2);
       color: var(--hm-ink-muted);
     }
+    .danger-zone {
+      margin-top: var(--hm-space-6);
+      padding-top: var(--hm-space-6);
+      border-top: var(--hm-hairline);
+    }
     .danger {
       color: var(--hm-danger);
     }
@@ -443,6 +473,7 @@ export class SharingPage implements OnInit, OnDestroy {
   private readonly t = inject(I18nService).translator;
   private readonly notice = inject(NoticeService);
   private readonly confirm = inject(ConfirmService);
+  private readonly exporter = inject(DataExportService);
 
   protected readonly view = signal<View>({ kind: 'loading' });
   protected readonly busy = signal(false);
@@ -471,7 +502,7 @@ export class SharingPage implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.leave();
+    this.stopPolling();
   }
 
   ionViewWillEnter(): void {
@@ -479,7 +510,7 @@ export class SharingPage implements OnInit, OnDestroy {
   }
 
   ionViewWillLeave(): void {
-    this.leave();
+    this.stopPolling();
   }
 
   private enter(): void {
@@ -489,7 +520,7 @@ export class SharingPage implements OnInit, OnDestroy {
     this.timer = setInterval(() => void this.poll(), POLL_MS);
   }
 
-  private leave(): void {
+  private stopPolling(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
   }
@@ -563,7 +594,36 @@ export class SharingPage implements OnInit, OnDestroy {
     this.syncStatus.set('');
     await this.run(async () => {
       const report = await this.sharing.syncNow();
+      if (report === 'ended') {
+        this.view.set({ kind: 'off' });
+        return;
+      }
       this.syncStatus.set(this.t.t(report.deferred ? 'sharing.syncDeferred' : 'sharing.synced'));
+    });
+  }
+
+  protected async leave(): Promise<void> {
+    const confirmed = await this.confirm.confirmDestructive(
+      this.t.t('sharing.leaveConfirmTitle'),
+      this.t.t('sharing.leaveConfirmBody'),
+      this.t.t('sharing.leave'),
+    );
+    if (!confirmed) return;
+    await this.run(async () => {
+      await this.sharing.leave();
+      this.view.set({ kind: 'off' });
+      this.tell('sharing.left');
+    });
+  }
+
+  /** §6.5: an export before leaving, offered but never required. */
+  protected async exportFirst(): Promise<void> {
+    await this.run(async () => {
+      try {
+        await this.exporter.exportAndShare(this.t.t('privacy.exportShareTitle'));
+      } catch {
+        this.error.set(this.t.t('privacy.exportFailed'));
+      }
     });
   }
 

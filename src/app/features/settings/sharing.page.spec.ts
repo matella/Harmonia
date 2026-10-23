@@ -9,6 +9,7 @@ import { SharingService, type SharingView } from '../../core/services/sharing.se
 import { CLOCK, NOTIFICATION_PORT } from '../../core/services/tokens';
 import { AppStore } from '../../core/state/app-store';
 import type { InviteProgress, JoinProgress } from '../../core/sync/sharing';
+import { ConfirmService } from '../../shared/services/confirm.service';
 import { errorKey, SharingPage } from './sharing.page';
 
 /** Stands in for the server-backed service; records what the screen asked for. */
@@ -46,13 +47,33 @@ class FakeSharing {
     this.calls.push(`choose:${choice}`);
     return { state: 'joined' };
   }
+  syncResult: 'ended' | { deferred: boolean } = { deferred: false };
+  async syncNow(): Promise<'ended' | { deferred: boolean }> {
+    this.calls.push('sync');
+    return this.syncResult;
+  }
+  async leave(): Promise<void> {
+    this.calls.push('leave');
+  }
+}
+
+/** Answers every confirmation, and records what it was asked. */
+class FakeConfirm {
+  answer = true;
+  asked: string[] = [];
+  async confirmDestructive(header: string): Promise<boolean> {
+    this.asked.push(header);
+    return this.answer;
+  }
 }
 
 describe('SharingPage', () => {
   let fake: FakeSharing;
+  let confirm: FakeConfirm;
 
   beforeEach(() => {
     fake = new FakeSharing();
+    confirm = new FakeConfirm();
     TestBed.configureTestingModule({
       providers: [
         provideIonicAngular(),
@@ -60,6 +81,7 @@ describe('SharingPage', () => {
         { provide: NOTIFICATION_PORT, useValue: new FakeNotificationPort() },
         { provide: CLOCK, useValue: new MutableClock('2026-10-23T08:00:00Z', 'Europe/Brussels') },
         { provide: SharingService, useValue: fake },
+        { provide: ConfirmService, useValue: confirm },
       ],
     });
     TestBed.inject(AppStore).profile.set({
@@ -152,6 +174,30 @@ describe('SharingPage', () => {
     expect(buttons(el)).toEqual(['Your partner’s: October 14, 2026', 'Yours: October 6, 2026']);
     await click(fixture, 'Yours:');
     expect(fake.calls).toEqual(['choose:mine']);
+    fixture.destroy();
+  });
+
+  it('asks before leaving the space, then shows sharing as off', async () => {
+    fake.view = 'member';
+    const { fixture, el } = await render();
+    expect(el.textContent).toContain('Leave the shared space');
+    confirm.answer = false;
+    await click(fixture, 'Leave');
+    expect(fake.calls).toEqual([]);
+    confirm.answer = true;
+    await click(fixture, 'Leave');
+    expect(confirm.asked).toEqual(['Leave the shared space?', 'Leave the shared space?']);
+    expect(fake.calls).toEqual(['leave']);
+    expect(buttons(el)).toEqual(['Invite your partner', 'Join with a code']);
+    fixture.destroy();
+  });
+
+  it('switches to solo when a sync learns that sharing has ended', async () => {
+    fake.view = 'member';
+    fake.syncResult = 'ended';
+    const { fixture, el } = await render();
+    await click(fixture, 'Sync now');
+    expect(buttons(el)).toEqual(['Invite your partner', 'Join with a code']);
     fixture.destroy();
   });
 

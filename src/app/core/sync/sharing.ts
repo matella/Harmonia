@@ -29,6 +29,19 @@ export type SharingErrorCode =
   | 'noInvite'
   | 'joinInProgress';
 
+/**
+ * The server says this device no longer belongs to the space: the partner left (the space
+ * was dissolved) or this device was removed. This device has already gone back to solo
+ * and kept every record.
+ */
+export class SharingEndedError extends Error {
+  readonly code = 'sharingEnded';
+  constructor() {
+    super('Sharing has ended.');
+    this.name = 'SharingEndedError';
+  }
+}
+
 export class SharingError extends Error {
   constructor(readonly code: SharingErrorCode) {
     super(`Sharing: ${code}`);
@@ -324,13 +337,41 @@ export class Sharing {
     // Until the joiner has answered (start date), nothing of theirs may be uploaded.
     if (await this.read<PendingJoin>(NAMES.join)) throw new SharingError('joinInProgress');
     const device = await this.deps.session.connect();
-    await this.loadKeys(new SpaceApi(device.client));
+    const api = new SpaceApi(device.client);
+    // Before anything else (a member without its key must still learn this): after a
+    // dissolve, pulls just return nothing, so the end must be asked for explicitly.
+    await this.checkStillMember(api);
+    await this.loadKeys(api);
     return this.engine(device.client).sync();
   }
 
   /**
+   * Leaves the space for both people (§6.5): the server deletes it, then this device goes
+   * back to solo. Offline, nothing changes and the error is thrown. If the app stops in
+   * between, the next sync notices that the space is gone and finishes the job.
+   */
+  async leave(): Promise<void> {
+    if (!(await this.deps.store.state())) throw new SharingError('notSharing');
+    const device = await this.deps.session.connect();
+    await new SpaceApi(device.client).dissolveSpace();
+    await this.stopSharingHere();
+  }
+
+  /** Goes solo only on a definite answer from the server; anything else changes nothing. */
+  private async checkStillMember(api: SpaceApi): Promise<void> {
+    const state = await this.deps.store.state();
+    if (!state) return;
+    const membership = await api.membership();
+    if (!membership) return;
+    if (membership.revoked || membership.spaceId !== state.spaceId) {
+      await this.stopSharingHere();
+      throw new SharingEndedError();
+    }
+  }
+
+  /**
    * Back to solo on this device only: every record stays, sharing state goes. For a
-   * device that lost its space key; leaving the space for both people is phase 3.
+   * device that lost its space key, and the local half of leaving.
    */
   async stopSharingHere(): Promise<void> {
     const state = await this.deps.store.state();

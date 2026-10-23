@@ -14,7 +14,7 @@ import { SqlJsDriver } from '../../src/app/core/persistence/sqljs-driver';
 import { MemorySecureKeyStore } from '../../src/app/core/platform/secure-key-store';
 import { DeviceSession, type AuthStorage } from '../../src/app/core/sync/device-session';
 import { toBase64, toBytea } from '../../src/app/core/sync/encoding';
-import { Sharing } from '../../src/app/core/sync/sharing';
+import { Sharing, SharingEndedError } from '../../src/app/core/sync/sharing';
 import { SpaceApi } from '../../src/app/core/sync/space-api';
 import { envelopeMessage, MissingSpaceKeyError } from '../../src/app/core/sync/space-keys';
 import { loadSyncCrypto, type SyncCrypto } from '../../src/app/core/sync/sync-crypto-port';
@@ -267,6 +267,53 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
       await expect(ann.sharing.sync()).rejects.toBeInstanceOf(MissingSpaceKeyError);
       expect(await ann.sharing.status()).toBe('memberWithoutKey');
     }
+  });
+
+  it('leaves for both: each keeps everything, the server copy is gone, the ex stays out of a new space', async () => {
+    type Phone = Awaited<ReturnType<typeof phone>>;
+    const pair = async (inviter: Phone, joiner: Phone, joinerName: string) => {
+      const code = await inviter.sharing.createInvite();
+      await joiner.sharing.claim(code, joinerName);
+      await inviter.sharing.approveInvite();
+      let progress = await joiner.sharing.checkJoin();
+      if (progress.state === 'chooseStart') progress = await joiner.sharing.chooseStart('space');
+      expect(progress).toEqual({ state: 'joined' });
+      await inviter.sharing.sync();
+    };
+    const alex = await phone();
+    const sam = await phone();
+    await alex.profiles.save(profile({}));
+    await sam.profiles.save(profile({}));
+    await alex.milestones.create(date('Alex’s date'));
+    await sam.milestones.create(date('Sam’s date'));
+    await alex.sharing.startSharing('Alex');
+    await pair(alex, sam, 'Sam');
+    const space = (await alex.store.state())!.spaceId;
+
+    await alex.sharing.leave();
+    expect(await alex.sharing.status()).toBe('off');
+    expect(psql(`select count(*) from records where space_id = '${space}'`)).toBe('0');
+    expect(psql(`select count(*) from spaces where id = '${space}'`)).toBe('0');
+
+    await expect(sam.sharing.sync()).rejects.toBeInstanceOf(SharingEndedError);
+    expect(await sam.sharing.status()).toBe('off');
+    for (const p of [alex, sam]) {
+      expect((await p.milestones.list()).map((m) => m.title).sort()).toEqual([
+        'Alex’s date',
+        'Sam’s date',
+      ]);
+    }
+    expect((await sam.profiles.get())?.displayName).toBe('Alex'); // still shown on Sam's phone
+    expect((await sam.profiles.persons()).find((p) => !p.isSelf)?.isPlaceholder).toBe(true);
+
+    // Sam shares again, with Kim: a new space, and Alex's name never reaches it.
+    const kim = await phone();
+    await kim.profiles.save(profile({}));
+    await sam.sharing.startSharing('Sam');
+    expect((await sam.store.state())!.spaceId).not.toBe(space);
+    await pair(sam, kim, 'Kim');
+    expect((await kim.profiles.persons()).map((p) => p.displayName).sort()).toEqual(['Kim', 'Sam']);
+    expect((await sam.profiles.get())?.displayName).toBe('Kim');
   });
 
   it('cleans up', async () => {

@@ -515,6 +515,25 @@ No screens yet; everything below is driven by tests.
 - Both phones had an "Our anniversary" date from onboarding, so after joining there are two (the merge-look-alike-dates note under slice 3b).
 - While the browser pane was hidden, its tab synced about every 17 seconds. That is the resume trigger firing on each visibility change of the hidden pane, which does not happen on a phone.
 
+### Phase 3, slice 1: leaving the space (2026-10-23)
+
+**Leaving** (§6.5): in the shared state, *Leave the shared space*, with *Export my data first* (the existing export) and a confirmation that says what happens: sharing ends for both, now; the server copy is deleted; each keeps everything; it can't be undone. The device asks the server to dissolve the space first, and only then goes back to solo. Offline, nothing changes and the screen says so.
+
+**The other phone notices** (`membership()`, `20261023000200_membership.sql`): after a dissolve, row-level security just returns nothing, so a sync would look "up to date" forever. Every sync now first asks the server where this device belongs, before loading keys, so a device without its key learns it too. It goes solo **only on a definite answer**: the space is gone or different, or this device was removed. Being offline, a refused session or no answer change nothing, because going solo drops the outbox and false positives would lose unsent edits. It then shows once: "Sharing with Sam has ended. Everything stays on this device."
+
+**After sharing ends, the other people become placeholders** (a product choice): they still show on the device ("You and Sam"), but like a name typed there. Sharing later with someone new never uploads them, and the new partner's own name replaces them. Without this, the ex's name would have been uploaded into the new partner's space.
+
+**Server fix:** dissolving left devices pointing to their deleted person, because the device's space reference was cleared before the person reference could match. `dissolve_space` now clears both. Sharing again after leaving creates a new space.
+
+**Tests:**
+- PGlite (`membership.test.ts`, 2): through sharing, dissolving and sharing again; a removed device; a user without a device.
+- Unit (`sync/sharing.test.ts`): staying a member when leaving fails offline; going solo when the space is gone or the device removed, with the partner kept as a local name; no change without a definite answer.
+- Live: Alex leaves; the server has no space and no records; both keep all dates; Sam's next sync notices; Sam shares again with Kim in a new space, and Kim never sees Alex's name.
+- Page spec: the confirmation (refusing it does nothing), and switching to solo when a sync learns of the end.
+- **On the emulator** (development build, local stack): leaving from the shared state removed the space and its 6 records from the server. The phone kept its partner's name, both dates and its reminder.
+
+**Next in phase 3:** adding one of my devices and removing a device both need a **verified device list** first. Rotation seals the new key to each remaining device, and keys read from the server's `devices` table could be planted by the server (the same attack as unsigned envelopes). The plan: an end-to-end encrypted `device` record holding each device's public keys, written by the device that checked the safety code; rotation seals only to devices on that list. This is a design change for §7, to be written down before it is built.
+
 **Phase 2 status:** the invite and core sync are complete for the profile, persons and dates. They are verified between the Android emulator and the browser preview against a local server. Next is phase 3 (devices and leaving), then phase 4 (recovery key), which real users need before `SYNC_CONFIG` can be set.
 
 **Still open from phase 1:**
