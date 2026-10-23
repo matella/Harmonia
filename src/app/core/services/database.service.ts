@@ -14,6 +14,7 @@ import type { SqlDriver } from '../persistence/sql-driver';
 import { SqlJsDriver } from '../persistence/sqljs-driver';
 import { TrashRepository } from '../persistence/trash.repository';
 import { webDbStore } from '../platform/web-db-store';
+import { SyncStore } from '../sync/sync-store';
 import { CLOCK } from './tokens';
 
 const DATABASE_NAME = 'harmonia';
@@ -25,6 +26,8 @@ export interface Repositories {
   settings: SettingsRepository;
   trash: TrashRepository;
   data: DataRepository;
+  /** Partner sharing's local side (outbox, applying received records). */
+  sync: SyncStore;
 }
 
 /** Opens the platform database, applies migrations and exposes repositories. */
@@ -54,6 +57,7 @@ export class DatabaseService {
       settings: new SettingsRepository(driver, this.clock),
       trash: new TrashRepository(driver, this.clock, journal),
       data: new DataRepository(driver),
+      sync: new SyncStore(driver, this.clock, journal),
     };
   }
 

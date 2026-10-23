@@ -75,6 +75,10 @@ export const routes: Routes = [
         path: 'settings/privacy',
         loadComponent: () => import('./features/settings/privacy-data.page').then((m) => m.PrivacyDataPage),
       },
+      {
+        path: 'settings/sharing',
+        loadComponent: () => import('./features/settings/sharing.page').then((m) => m.SharingPage),
+      },
       { path: 'settings/trash', loadComponent: () => import('./features/settings/trash.page').then((m) => m.TrashPage) },
       { path: 'settings/about', loadComponent: () => import('./features/settings/about.page').then((m) => m.AboutPage) },
     ],

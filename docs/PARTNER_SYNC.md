@@ -446,14 +446,41 @@ No screens yet; everything below is driven by tests.
 - **Person IDs are unique per space**, not across the server (`persons` key `(space_id, id)`), so knowing someone's ID does not let anyone block them from creating or joining a space. Joining a space under an ID it already has is still refused.
 - Tests: PGlite (envelopes only for one's own device, IDs per space) and live (a planted envelope, unsigned or signed by another key, is refused and the device reports it has no key).
 
-**Notes for 3b:**
-- `invite_claim` ignores expiry: an expired invite looks like "waiting" forever. Treat an invite older than 24 hours as gone, or return `expires_at`.
-- After going back to solo on one device, the server still counts that device as a member until phase 3 adds leaving, so claiming an invite returns `alreadyInSpace`. The screens need a clear message for it.
+**Notes for 3b (both handled there):**
+- `invite_claim` ignores expiry: an expired invite looked like "waiting" forever. The device now forgets an invite 24 hours after creating it.
+- After going back to solo on one device, the server still counts that device as a member until phase 3 adds leaving, so claiming an invite returns `alreadyInSpace`. The screen says so in words.
 
 **Before real users:** the recovery key (§8, phase 4) must exist, because §6.1 makes it a step that can't be skipped. `SYNC_CONFIG` stays null until then.
 
+### Slice 3b: the sharing screens (2026-10-23)
+
+**Settings › Share with your partner** (`features/settings/sharing.page.ts`, route `settings/sharing`). The entry exists only when a sharing server is configured. One screen, by state:
+- **Off:** what sharing means (end-to-end encrypted; your partner sees and can edit your profile and dates; memories and photos later; each keeps a full copy on leaving), then *Invite your partner* or *Join with a code*.
+- **Inviting:** your name (pre-filled, required), *Create an invite*, then the code with *Copy code* and *Send code* (share sheet), "Waiting for your partner…". When a device claims it: "A device wants to join", the **safety code** in large digits ("942 308", read out as one label), *The codes match, accept* or *Decline*.
+- **Joining:** paste the code (found anywhere in the pasted text), your name, *Join*; then the same safety code and "Show this code to your partner"; when the start dates differ, two buttons with both dates; then "You're now sharing with …".
+- **Shared:** "Shared with Sam", *Sync now* (with "Up to date", or a note when changes wait for the clock).
+- **No key on this device:** an explanation and *Stop sharing on this device* (confirmed; every record stays).
+- Errors are whole sentences per code (wrong code, invite used or expired, device still in an earlier space, offline, other).
+- The server is asked about an invite or a join every 3 seconds, **only while the screen is open**.
+- Text in EN, FR and NL (drafts for native review, like the rest).
+
+**Angular side** (`core/services/sharing.service.ts`): `SYNC_SERVER` is `SYNC_CONFIG` on devices. In the browser preview it is the local development stack (`core/platform/sync-dev-config.ts`), only in development builds served from `localhost`, `127.0.0.1` or `*.localhost`. **Release builds contain neither the URL nor the key**: `ngDevMode` folds it to null, checked by searching the production bundle. libsodium and the Supabase client load only when the screen is used; neither is in the startup bundle. After anything that changed local data, state is reloaded and reminders and widgets refreshed. The device session is now established once and reused, instead of checked with the server on every call.
+
+**Verified in the browser** (development build, local Supabase in Docker, two separate origins `localhost:4200` and `sam.localhost:4200` as two phones):
+- Alex creates an invite; Sam pastes it inside a message, with "Alexandre" typed as the partner and a different start date (6 versus 14 October).
+- Both screens show the same safety code (942 308); Alex accepts.
+- Sam is asked which start date to keep and keeps their own: after *Sync now* on Alex's phone, both phones show "together since 6 October 2026", "You and Sam" and "You and Alex", and Alex's yearly anniversary is in Sam's dates.
+- A device that lost its key (see below) shows the no-key state, stops sharing locally, and can share again.
+
+**Tests:** `sharing.page.spec.ts` (6: states, safety code, start choice, error wording, error codes) and `sync/sharing.test.ts` (2: an expired invite is forgotten without the server, status from local state).
+
+**Limits found:**
+- **The browser preview keeps sharing secrets in memory**, by design (§15): reloading the page loses the device's keys, and the device then shows the no-key state. On a phone they are in the Keychain or Keystore.
+- Ionic's view events don't fire when the sharing screen is the first page loaded, so it also loads from Angular's own lifecycle.
+- If both people added "Our anniversary" during onboarding, they will have two such dates after joining (different IDs). Merging look-alike dates on join is left for later.
+- Copy uses the web clipboard; check it in the Android WebView in slice 4.
+
 **Next slices:**
-3b. Screens: Settings › Share with your partner (start, invite code with copy and share, waiting, "A device wants to join" with the safety code, approve or decline), joining (paste a code, consent, your name, safety code, waiting, choose the start date), and the member state with "Sync now". EN/FR/NL text; a development-only server setting that never reaches release builds.
 4. Wire the engine into the app (start, resume, after local changes). Android's debug-only route to the local Supabase stack (`10.0.2.2`) needs cleartext allowed in debug builds only.
 
 **Still open from phase 1:**

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { IonBackButton, IonButtons, IonContent, IonHeader, IonIcon, IonTitle, IonToolbar } from '@ionic/angular';
 
+import { SharingService } from '../../core/services/sharing.service';
 import { AppStore } from '../../core/state/app-store';
 import { PhotoFrameComponent } from '../../shared/components/photo-frame.component';
 import { I18N_PIPES, type MessageKey } from '../../shared/pipes/i18n.pipes';
@@ -12,6 +13,13 @@ interface SettingsLink {
   title: MessageKey;
   hint: MessageKey;
 }
+
+const SHARING_LINK: SettingsLink = {
+  route: '/settings/sharing',
+  icon: 'people-outline',
+  title: 'settings.sharing',
+  hint: 'settings.sharingHint',
+};
 
 const LINKS: SettingsLink[] = [
   { route: '/settings/appearance', icon: 'color-palette-outline', title: 'settings.appearance', hint: 'settings.appearanceHint' },
@@ -96,5 +104,6 @@ const LINKS: SettingsLink[] = [
 })
 export class SettingsPage {
   protected readonly store = inject(AppStore);
-  protected readonly links = LINKS;
+  /** "Share with your partner" exists only when a sharing server is configured. */
+  protected readonly links: SettingsLink[] = inject(SharingService).available ? [SHARING_LINK, ...LINKS] : LINKS;
 }

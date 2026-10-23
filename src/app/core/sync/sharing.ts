@@ -65,7 +65,11 @@ const NAMES = {
 interface PendingInvite {
   inviteId: string;
   secret: string;
+  /** When it was created here (ms); the server expires invites after 24 hours. */
+  createdAt?: number;
 }
+
+const INVITE_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
 interface PendingJoin {
   inviteId: string;
@@ -142,20 +146,24 @@ export class Sharing {
     if (!key) throw new MissingSpaceKeyError();
     const secret = this.deps.crypto.newInviteSecret();
     const inviteId = await api.createInvite(this.deps.crypto.wrapForInvite(key, secret));
-    await this.write<PendingInvite>(NAMES.invite, { inviteId, secret: toBase64(secret) });
+    await this.write<PendingInvite>(NAMES.invite, {
+      inviteId,
+      secret: toBase64(secret),
+      createdAt: this.deps.store.nowMs(),
+    });
     return formatInviteCode({ inviteId, secret });
   }
 
   /** The code of the invite still waiting for an answer, to show it again. */
   async currentInviteCode(): Promise<string | null> {
-    const pending = await this.read<PendingInvite>(NAMES.invite);
+    const pending = await this.pendingInvite();
     return pending
       ? formatInviteCode({ inviteId: pending.inviteId, secret: fromBase64(pending.secret) })
       : null;
   }
 
   async checkInvite(): Promise<InviteProgress> {
-    const pending = await this.read<PendingInvite>(NAMES.invite);
+    const pending = await this.pendingInvite();
     if (!pending) return { state: 'gone' };
     const device = await this.deps.session.connect();
     try {
@@ -175,6 +183,16 @@ export class Sharing {
       }
       throw error;
     }
+  }
+
+  /** The invite waiting for an answer; an expired one is forgotten (the server refuses it anyway). */
+  private async pendingInvite(): Promise<PendingInvite | null> {
+    const pending = await this.read<PendingInvite>(NAMES.invite);
+    if (pending?.createdAt && this.deps.store.nowMs() - pending.createdAt >= INVITE_LIFETIME_MS) {
+      await this.deps.secrets.remove(NAMES.invite);
+      return null;
+    }
+    return pending;
   }
 
   /** Admits the device that claimed the invite, after the safety codes matched. */

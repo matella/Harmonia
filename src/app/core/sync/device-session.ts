@@ -79,10 +79,18 @@ export class DeviceSession {
 
   /** Signs in (or resumes), registers or re-attaches this device. Safe to call repeatedly. */
   connect(): Promise<ConnectedDevice> {
-    this.connecting ??= this.establish().finally(() => {
+    // Once established, the device is reused: the client refreshes its own token, and a
+    // check with the server on every call would only add requests.
+    this.connecting ??= this.establish().catch((error: unknown) => {
       this.connecting = null;
+      throw error;
     });
     return this.connecting;
+  }
+
+  /** Forgets the established connection, so the next `connect` checks with the server again. */
+  reset(): void {
+    this.connecting = null;
   }
 
   /** The Supabase auth session, kept in the secure store instead of localStorage. */
