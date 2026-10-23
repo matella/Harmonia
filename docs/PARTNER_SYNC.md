@@ -134,12 +134,12 @@ IDs are already random UUIDv4 (`core/persistence/ids.ts`), so no re-keying is ne
 6. The joiner's earlier "partner name" becomes only a suggestion. **Each person's own entered name wins.**
 
 ### 6.3 Add one of my devices
-On an existing device, choose **Add a device** to show a QR code. The new device scans it, registers, shows the safety code, and is approved on the existing device. It becomes a device of the **same person**. A recovery key also works (§8).
+On an existing device, choose **Add a device** to show an invite code (QR later). The new device enters it, registers, shows the safety code, and is approved on the existing device. It becomes a device of the **same person** (§7.6). A recovery key also works (§8).
 
 ### 6.4 Remove a device (lost or replaced)
 From any device in the space:
 1. The server revokes the device, so its JWT and signature no longer work.
-2. A new epoch `K[n+1]` is sealed to the remaining devices and to every recovery envelope.
+2. A new epoch `K[n+1]` is sealed to the remaining devices on the verified device list and to every recovery envelope (§7.4).
 3. Future writes use the new epoch.
 
 **The removed device keeps what it already downloaded.** This is unavoidable, and it's why an app lock (PIN or biometrics) is planned.
@@ -158,10 +158,58 @@ Both people can edit and delete everything; partners are equal (decided). Delete
 ### 6.7 Reminders for shared dates
 Reminder rules are per device. When the partner adds a date, it arrives **without reminders** and shows a "New date from Sam" badge. A per-device setting, "Remind me about dates my partner adds", applies the default offsets (decided). Notifications keep using the reserved local ID ranges.
 
-## 7. Key rotation
-- A new epoch is created when a device is removed, when a person's recovery key is replaced, and when a person leaves (the dissolve deletes everything anyway).
-- Old records keep their epoch. Members keep the old keys locally so they can read history, and the server stores envelopes for each epoch.
-- **Every rotation also re-wraps each person's recovery envelope.** Without that, recovery breaks.
+## 7. Devices and key rotation
+
+*Revised 2026-10-23 (phase 3), before building it: rotation now seals only to devices on an end-to-end encrypted device list, never to keys read from the server.*
+
+### 7.1 Why a verified device list
+Removing a device seals a new space key `K[n+1]` to every remaining device. If the sealing device took their public keys from the server's `devices` table, a hostile server could slip in a key of its own and read everything written from then on: the same attack as unsigned envelopes (§17). So devices learn each other's keys only from **device records inside the space**, encrypted with `K` like every other record. The server can't write those, because it never has `K`.
+
+### 7.2 Device records
+- A new synced record type `device`, one per device. Its ID is the device's server ID (stable: re-attaching keeps it).
+- Shared fields: `person_id`, `sign_public_key`, `box_public_key`, `platform`, `revoked_at`. Locally a new table `space_devices` (migration 4). No name or model: the screen says "Sam's Android phone" or "This device".
+- **Each device writes only its own record**, when it creates or joins the space and again on any sync where it finds its record missing or out of date. The one exception: the device that removes another writes `revoked_at` into the removed device's record (§7.4). Nobody copies another device's keys from the server into a record, not even after comparing the safety code: if nobody compared it, the server could have swapped those keys.
+- **Trust:** only members hold `K`, and the server never does, so a device record is either written by that device or by another member. Members are trusted by design (§11). The server can neither read nor forge these records.
+- Received device records follow the usual rules: last writer wins per record; the payload rules check the keys (32 bytes each), the platform and the dates; `SYNC_CAPABILITY` goes up, so older builds pull them again once updated.
+- **Schema:** the server's `records.record_type` check gains `device` (a migration). The local `outbox` table checks `record_type` too, and SQLite can't change a check, so migration 4 rebuilds that table (copy, drop, rename). Going solo also clears `space_devices`.
+- **Existing spaces** (test servers only so far): each device writes its own record on its first sync with this version.
+
+### 7.3 Envelopes signed by the device that sealed them
+Envelopes gain a `signer_device_id`. A device trusts an envelope only if its signature verifies with the signer's signing key, and the signer is:
+- this device itself (as today); or
+- a device on the verified list that was not removed before that epoch.
+
+### 7.4 Removing a device (§6.4)
+1. The removing device creates `K[n+1]` and **stores it locally first**.
+2. It seals `K[n+1]` to every remaining device on its verified list (and to itself), signing each envelope.
+3. **One server call does the rest, all or nothing:** `rotate(target, expected_epoch, envelopes)`. In one transaction it checks that the space is still at `expected_epoch`, marks X revoked (its requests stop working), starts epoch `n+1` and stores the envelopes. Each target must be a non-revoked device of the space, and the signer must be the caller (`current_device_id()`). If another removal got there first, the epochs no longer match and it refuses: the device syncs to the new epoch and tries again. A crash before the call leaves nothing on the server; a crash after it is finished by the repair step below.
+4. It then writes X's device record with `revoked_at`, under `K[n+1]`.
+5. **From then on the server skips record writes under an older epoch silently**, like stale and far-future ones, so one such row never fails an upload. The engine sees that the write didn't land, and the change stays queued until the device has the new key.
+6. Every other device notices on its next sync: `membership()` reports a newer epoch. It opens its envelope for that epoch, checks the signer as in 7.3, stores the key and moves to the new epoch. If the envelope can't be trusted, it doesn't adopt it, writes nothing, and shows that sharing needs attention.
+
+**Repair:** on each sync, a member asks which devices of the space have no envelope for the current epoch (a members-only function). It seals the current key to those that are on its verified list and not revoked. This covers a device added just before a rotation, a device whose record hadn't arrived yet, and a partial failure.
+
+The removed device keeps what it already downloaded (§6.4). It can't read anything new: it never receives `K[n+1]`, and the server stops serving it.
+
+### 7.5 Old epochs
+Records keep the epoch they were written under; members keep old keys to read history. A device that joins later needs every epoch, not only the current one: **the invite envelope carries all epoch keys** (a small key bundle instead of one key), and the joiner files its own sealed envelope for each. The alternative, re-encrypting history at every rotation, would rewrite every record and race with concurrent edits.
+
+### 7.6 Adding one of my devices (§6.3)
+- *Add a device* in the shared state creates the same kind of invite, marked locally as "for me". Approving it uses `approve_invite(invite, as_person = me)`.
+- The new device claims as usual, with its own local person ID. After approval, `accept_invite` tells it which person it now is.
+- If that's not its own local ID, it **becomes that person**: its onboarding self-person is replaced by a local row for the space's person (kept as "self", with the space's name once it arrives), and its authors are rewritten. Then it adopts the space's profile **without asking about the start date** (it's the same person), merges its dates in and writes its own device record.
+- Both screens show the same safety code, exactly as with a partner.
+
+### 7.7 Whose devices can be removed (decided 2026-10-23)
+Removing the partner's only phone would end sharing for them without dissolving the space: a second, harsher kind of breakup next to *Leave* (§6.5). **Decided by the product owner: the screen offers removal only for my own devices; a partner ends things with Leave.** The server still allows any member to remove any device of the space, so a lost phone can be removed even from the partner's device if ever needed.
+
+### 7.8 Rotation and recovery
+Every rotation also re-wraps each person's recovery envelope (§8, phase 4). Without that, recovery breaks after a removal.
+
+### 7.9 Order of work
+1. The device list: records, local table, each device writing its own at creation, at join and whenever its record is missing.
+2. Adding one of my devices.
+3. Removing a device: `rotate`, signed envelopes from other devices, skipping old-epoch writes, repair, and the key bundle in invites.
 
 ## 8. Recovery key
 - 184 random bits plus a 16-bit checksum (25 bytes), shown as **8 groups of 5 Crockford base32 characters**, for example `K7QX2-…`. It's language-neutral (no English word list) and typo-tolerant: O reads as 0, I and L as 1, and the checksum rejects typos.
@@ -191,6 +239,7 @@ The privacy policy must describe the right-hand column. It is not accurate to sa
 - **Malicious member:** they can read and edit everything by design. Recently deleted limits the damage from destructive edits.
 - **Compromised device (malware):** out of scope, since keys live in the app's memory while it runs.
 - **Recovery key leaked:** replace it (§8).
+- **Hostile server colluding with a removed device:** it could withhold the record that marks the device removed from another member, so that member keeps sealing keys to it during repair. Repair therefore also skips devices the server reports as revoked. Beyond that this is out of scope.
 
 ## 12. Obligations and costs
 - **Domain and website:**
@@ -533,6 +582,27 @@ No screens yet; everything below is driven by tests.
 - **On the emulator** (development build, local stack): leaving from the shared state removed the space and its 6 records from the server. The phone kept its partner's name, both dates and its reminder.
 
 **Next in phase 3:** adding one of my devices and removing a device both need a **verified device list** first. Rotation seals the new key to each remaining device, and keys read from the server's `devices` table could be planted by the server (the same attack as unsigned envelopes). The plan: an end-to-end encrypted `device` record holding each device's public keys, written by the device that checked the safety code; rotation seals only to devices on that list. This is a design change for §7, to be written down before it is built.
+
+### Phase 3, slice 2: the verified device list (2026-10-23)
+
+The design is in §7 (revised the same day: each device writes only its own record; removal will be one all-or-nothing `rotate` call; repair of missing envelopes; old-epoch writes skipped). This slice builds §7.9 step 1.
+- **Local:** migration 4 adds `space_devices` and rebuilds the `outbox` table so it accepts the new `device` record type (SQLite can't change a check). The new type is classified in `SYNC_SCHEMA`: the shared fields are `person_id`, the two public keys, `platform` and `revoked_at`.
+- **Payload rules:** each key is 32 bytes in base64, the platform is `android` or `ios`, and the person is a UUID or null.
+- **`SYNC_CAPABILITY` is 2**, so an updated older build pulls everything once more and picks up the device records it refused before.
+- **Each device writes its own record** (`SyncStore.writeOwnDevice`) when it creates the space, when it finishes joining, and on any sync where its record is missing or out of date. It never writes over a removal.
+- Going solo and *Delete all data* clear the list.
+- **Server:** `20261023000300_device_records.sql` lets `records` hold `device`.
+
+**Tests:**
+- Upgrade from v3 keeps queued changes and accepts device records.
+- Device records travel between two devices; a malformed one is refused; writing an unchanged record queues nothing; a removed device does not write itself back.
+- Live: after a real join, both phones list exactly both devices, each with the keys that device holds.
+
+**Next:**
+- Adding one of my devices (§7.6).
+- Removing a device with rotation (§7.4); only my own devices on screen (§7.7, decided).
+
+**Found:** *Delete all data* does not touch sharing. The device's sharing keys stay in secure storage, and the server still counts the device as a member of its space. It should end sharing on this device first (or ask to leave). Left for a follow-up.
 
 **Phase 2 status:** the invite and core sync are complete for the profile, persons and dates. They are verified between the Android emulator and the browser preview against a local server. Next is phase 3 (devices and leaving), then phase 4 (recovery key), which real users need before `SYNC_CONFIG` can be set.
 

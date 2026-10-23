@@ -85,7 +85,7 @@ export class DeviceSession {
   constructor(
     private readonly secrets: SecureKeyStore,
     private readonly crypto: SyncCrypto,
-    private readonly platform: DevicePlatform,
+    readonly platform: DevicePlatform,
     private readonly createClient: (storage: AuthStorage) => SupabaseClient,
   ) {}
 

@@ -33,7 +33,18 @@ function optionalInstant(value: SqlValue): boolean {
   }
 }
 
+/** A 32-byte public key in standard base64 (44 characters with padding). */
+const publicKey = (value: SqlValue) =>
+  typeof value === 'string' && /^[A-Za-z0-9+/]{43}=$/.test(value);
+
 const RULES: Readonly<Partial<Record<SyncedRecordType, (p: Payload) => boolean>>> = {
+  device: (p) =>
+    (p['person_id'] === null ||
+      (typeof p['person_id'] === 'string' && UUID.test(p['person_id']))) &&
+    publicKey(p['sign_public_key']) &&
+    publicKey(p['box_public_key']) &&
+    (p['platform'] === 'android' || p['platform'] === 'ios') &&
+    optionalInstant(p['revoked_at']),
   profile: (p) =>
     optionalText(p['relationship_label'], LIMITS.relationshipLabel) &&
     isoDate(p['start_date']) &&

@@ -68,7 +68,7 @@ const SERVER_RECORD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
  * capability is lower pull everything once more, so refused records arrive after the
  * update instead of staying behind the cursor for good.
  */
-export const SYNC_CAPABILITY = 1;
+export const SYNC_CAPABILITY = 2; // 2: device records (phase 3)
 
 /**
  * Pull, push, pull (docs/PARTNER_SYNC.md §5). Framework-free: the app wires it to the

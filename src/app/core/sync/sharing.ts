@@ -3,10 +3,10 @@ import { LIMITS } from '../domain/validation';
 import { newId as newUuid } from '../persistence/ids';
 import type { RelationshipRepository } from '../persistence/relationship.repository';
 import type { SecureKeyStore } from '../platform/secure-key-store';
-import type { DeviceSession } from './device-session';
+import type { ConnectedDevice, DeviceSession } from './device-session';
 import { fromBase64, toBase64 } from './encoding';
 import { formatInviteCode, parseInviteCode } from './invite-code';
-import { SpaceApi, SpaceApiError } from './space-api';
+import { SpaceApi, SpaceApiError, type Membership } from './space-api';
 import { envelopeMessage, MissingSpaceKeyError, SpaceKeys } from './space-keys';
 import { SupabaseTransport } from './supabase-transport';
 import type { DevicePublicKeys, SyncCrypto } from './sync-crypto-port';
@@ -141,6 +141,7 @@ export class Sharing {
     if (!own && space.spaceId !== pending.spaceId) throw new MissingSpaceKeyError();
     await this.keys.save(space.spaceId, space.epoch, own ?? key);
     await this.deps.store.joinSpace(space.spaceId, space.epoch);
+    await this.writeOwnDevice(device, space.personId);
     await this.deps.secrets.remove(NAMES.pendingKey);
     await this.sync();
   }
@@ -340,9 +341,26 @@ export class Sharing {
     const api = new SpaceApi(device.client);
     // Before anything else (a member without its key must still learn this): after a
     // dissolve, pulls just return nothing, so the end must be asked for explicitly.
-    await this.checkStillMember(api);
+    const membership = await this.checkStillMember(api);
     await this.loadKeys(api);
+    await this.writeOwnDevice(device, membership?.personId ?? null);
     return this.engine(device.client).sync();
+  }
+
+  /**
+   * This device's own record in the end-to-end device list (§7.2), written by this device
+   * only, from its own keys. A no-op when the record is already up to date.
+   */
+  private async writeOwnDevice(device: ConnectedDevice, personId: string | null): Promise<void> {
+    const person =
+      personId ?? (await this.deps.profiles.persons()).find((p) => p.isSelf)?.id ?? null;
+    await this.deps.store.writeOwnDevice({
+      id: device.deviceId,
+      personId: person,
+      signPublicKey: toBase64(device.keys.signPublicKey),
+      boxPublicKey: toBase64(device.keys.boxPublicKey),
+      platform: this.deps.session.platform,
+    });
   }
 
   /**
@@ -358,15 +376,16 @@ export class Sharing {
   }
 
   /** Goes solo only on a definite answer from the server; anything else changes nothing. */
-  private async checkStillMember(api: SpaceApi): Promise<void> {
+  private async checkStillMember(api: SpaceApi): Promise<Membership | null> {
     const state = await this.deps.store.state();
-    if (!state) return;
+    if (!state) return null;
     const membership = await api.membership();
-    if (!membership) return;
+    if (!membership) return null;
     if (membership.revoked || membership.spaceId !== state.spaceId) {
       await this.stopSharingHere();
       throw new SharingEndedError();
     }
+    return membership;
   }
 
   /**
@@ -383,6 +402,7 @@ export class Sharing {
   private async finishJoin(): Promise<JoinProgress> {
     const device = await this.deps.session.connect();
     await this.loadKeys(new SpaceApi(device.client));
+    await this.writeOwnDevice(device, null);
     await this.engine(device.client).sync();
     await this.deps.secrets.remove(NAMES.join);
     return { state: 'joined' };

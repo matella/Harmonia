@@ -4,7 +4,8 @@
  * checks that every column of every synced table is classified here, so a new column
  * cannot slip into sync by accident.
  */
-export type SyncedRecordType = 'profile' | 'person' | 'milestone' | 'memory' | 'memory_media';
+export type SyncedRecordType =
+  'profile' | 'person' | 'milestone' | 'memory' | 'memory_media' | 'device';
 
 export interface TableSyncSchema {
   table: string;
@@ -22,7 +23,14 @@ export const SYNC_SCHEMA: Readonly<Record<SyncedRecordType, TableSyncSchema>> = 
     shared: ['relationship_label', 'start_date', 'start_time', 'start_time_zone_id'],
     // calendar_time_zone_id: long-distance couples have different "todays".
     // display_name: superseded by persons (always NULL since schema v2).
-    local: ['id', 'display_name', 'calendar_time_zone_id', 'photo_path', 'created_at', 'updated_at'],
+    local: [
+      'id',
+      'display_name',
+      'calendar_time_zone_id',
+      'photo_path',
+      'created_at',
+      'updated_at',
+    ],
     meta: ['version', 'author_person_id'],
   },
   person: {
@@ -33,7 +41,18 @@ export const SYNC_SCHEMA: Readonly<Record<SyncedRecordType, TableSyncSchema>> = 
   },
   milestone: {
     table: 'milestones',
-    shared: ['id', 'title', 'category', 'event_date', 'event_time', 'event_time_zone_id', 'recurrence_rule', 'leap_day_policy', 'note', 'is_pinned'],
+    shared: [
+      'id',
+      'title',
+      'category',
+      'event_date',
+      'event_time',
+      'event_time_zone_id',
+      'recurrence_rule',
+      'leap_day_policy',
+      'note',
+      'is_pinned',
+    ],
     // photo_path is a local file; the photo itself syncs as an encrypted blob.
     local: ['photo_path', 'created_at', 'updated_at'],
     meta: ['version', 'author_person_id', 'deleted_at'],
@@ -50,7 +69,23 @@ export const SYNC_SCHEMA: Readonly<Record<SyncedRecordType, TableSyncSchema>> = 
     local: ['file_path', 'thumbnail_path', 'created_at'],
     meta: ['version', 'deleted_at'],
   },
+  // Each device's own record of its public keys (PARTNER_SYNC §7.2). Removal is the
+  // shared `revoked_at`, not a tombstone: a removed device stays known as removed.
+  device: {
+    table: 'space_devices',
+    shared: ['id', 'person_id', 'sign_public_key', 'box_public_key', 'platform', 'revoked_at'],
+    local: ['created_at', 'updated_at'],
+    meta: ['version', 'author_person_id'],
+  },
 };
 
 /** Never synced at all: reminder rules (notification IDs are device-local), settings, clock and sync state. */
-export const LOCAL_ONLY_TABLES = ['reminder_rules', 'app_settings', 'id_sequences', 'hlc_state', 'sync_state', 'outbox', 'schema_migrations'] as const;
+export const LOCAL_ONLY_TABLES = [
+  'reminder_rules',
+  'app_settings',
+  'id_sequences',
+  'hlc_state',
+  'sync_state',
+  'outbox',
+  'schema_migrations',
+] as const;

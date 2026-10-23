@@ -161,6 +161,40 @@ export const MIGRATIONS: readonly Migration[] = [
       `ALTER TABLE sync_state ADD COLUMN capability INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    version: 4,
+    name: 'verified device list (partner sharing phase 3)',
+    statements: [
+      // The devices of the shared space and their public keys, as written by each device
+      // itself inside the end-to-end encrypted space (docs/PARTNER_SYNC.md §7.2). Key
+      // rotation seals new keys only to devices listed here, never to keys from the server.
+      `CREATE TABLE space_devices (
+        id TEXT PRIMARY KEY,
+        person_id TEXT,
+        sign_public_key TEXT NOT NULL,
+        box_public_key TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        revoked_at TEXT,
+        version TEXT NOT NULL,
+        author_person_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      // SQLite cannot change a CHECK constraint: rebuild the outbox to accept 'device'.
+      `CREATE TABLE outbox_v4 (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        record_type TEXT NOT NULL CHECK (record_type IN ('profile', 'person', 'milestone', 'memory', 'memory_media', 'device')),
+        record_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (record_type, record_id)
+      )`,
+      `INSERT INTO outbox_v4 (seq, record_type, record_id, version, created_at)
+       SELECT seq, record_type, record_id, version, created_at FROM outbox`,
+      `DROP TABLE outbox`,
+      `ALTER TABLE outbox_v4 RENAME TO outbox`,
+    ],
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

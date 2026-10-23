@@ -435,4 +435,59 @@ describe('sync engine (two devices, in-memory server)', () => {
     expect(later.deferred).toBe(false);
     expect((await b.milestones.get(trip.id))?.title).toBe('From the future');
   });
+
+  it('shares each device’s own record, refuses malformed ones, and never un-removes one', async () => {
+    const { server, a, b } = await pair();
+    const keyA = { sign: 'A'.repeat(43) + '=', box: 'B'.repeat(43) + '=' };
+    const own = {
+      id: '0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a',
+      personId: (await a.profiles.persons()).find((p) => p.isSelf)!.id,
+      signPublicKey: keyA.sign,
+      boxPublicKey: keyA.box,
+      platform: 'android',
+    };
+    expect(await a.store.writeOwnDevice(own)).toBe(true);
+    expect(await a.store.writeOwnDevice(own)).toBe(false); // unchanged: no new version
+    await a.engine.sync();
+    await b.engine.sync();
+    expect(await b.store.devices()).toEqual([{ ...own, revokedAt: null }]);
+
+    // A malformed device record (a key that is not 32 bytes) is refused.
+    const bad = { ...own, id: '0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b', signPublicKey: 'short' };
+    const address = {
+      spaceId: SPACE,
+      recordType: 'device',
+      recordId: bad.id,
+      epoch: 1,
+      version: '1792670000000-000000-0000beef',
+      deleted: false,
+    };
+    const data = {
+      person_id: bad.personId,
+      sign_public_key: bad.signPublicKey,
+      box_public_key: bad.boxPublicKey,
+      platform: 'android',
+      revoked_at: null,
+      author_person_id: null,
+    };
+    await server.push(SPACE, [
+      {
+        recordType: 'device',
+        recordId: bad.id,
+        epoch: 1,
+        version: address.version,
+        deleted: false,
+        ...crypto.encryptRecord(keyring.key(1)!, address, JSON.stringify({ format: 1, data })),
+      },
+    ]);
+    expect((await b.engine.sync()).rejected).toBe(1);
+    expect((await b.store.devices()).map((d) => d.id)).toEqual([own.id]);
+
+    // Once another member marks this device removed, it does not write itself back.
+    await b.driver.run(
+      `UPDATE space_devices SET revoked_at = '2026-10-23T12:00:00Z' WHERE id = ?`,
+      [own.id],
+    );
+    expect(await b.store.writeOwnDevice(own)).toBe(false);
+  });
 });

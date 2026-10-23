@@ -175,6 +175,25 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
     expect((await sam.profiles.get())?.displayName).toBe('Alex');
     expect((await sam.profiles.get())?.relationshipLabel).toBe('Us');
     expect((await alex.profiles.persons()).some((p) => p.isPlaceholder)).toBe(false);
+
+    // The end-to-end device list: each device wrote its own record with its own keys.
+    const alexDevice = await alex.session.connect();
+    const samDevice = await sam.session.connect();
+    const expected = [alexDevice, samDevice]
+      .map((d) => ({
+        id: d.deviceId,
+        signPublicKey: toBase64(d.keys.signPublicKey),
+        boxPublicKey: toBase64(d.keys.boxPublicKey),
+        platform: 'android',
+        revokedAt: null,
+      }))
+      .sort((x, y) => x.id.localeCompare(y.id));
+    for (const p of [alex, sam]) {
+      const listed = (await p.store.devices())
+        .map(({ personId: _person, ...rest }) => rest)
+        .sort((x, y) => x.id.localeCompare(y.id));
+      expect(listed).toEqual(expected);
+    }
     expect((await sam.profiles.persons()).some((p) => p.isPlaceholder)).toBe(false);
 
     // Sam's phone loses its space key: it reopens its own sealed copy from the server.

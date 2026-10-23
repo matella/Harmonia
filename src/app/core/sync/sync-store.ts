@@ -12,8 +12,23 @@ import type { SqlDriver, SqlExecutor, SqlValue } from '../persistence/sql-driver
  * whose tombstone flag is set; trashing and restoring are ordinary versioned writes.
  */
 
-/** Record types synced in phase 2; memories and photos follow in phase 5. */
-export const PHASE2_TYPES: readonly SyncedRecordType[] = ['profile', 'person', 'milestone'];
+/** Record types synced so far; memories and photos follow in phase 5. */
+export const PHASE2_TYPES: readonly SyncedRecordType[] = [
+  'profile',
+  'person',
+  'milestone',
+  'device',
+];
+
+/** A device of the space and its public keys (base64), from the end-to-end device list. */
+export interface SpaceDevice {
+  id: string;
+  personId: string | null;
+  signPublicKey: string;
+  boxPublicKey: string;
+  platform: string;
+  revokedAt: string | null;
+}
 
 /** The profile is one row per space; on the server it needs a UUID. */
 export const PROFILE_RECORD_ID = '00000000-0000-4000-8000-000000000001';
@@ -198,6 +213,88 @@ export class SyncStore {
     await tx.run('DELETE FROM persons WHERE is_placeholder = 1');
   }
 
+  /**
+   * Writes this device's own record into the device list (§7.2), only if it is missing or
+   * out of date. Never over a removal: a device marked removed does not restore itself.
+   * Returns whether a new version was queued.
+   */
+  async writeOwnDevice(device: Omit<SpaceDevice, 'revokedAt'>): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const rows = await tx.query<{
+        person_id: string | null;
+        sign_public_key: string;
+        box_public_key: string;
+        platform: string;
+        revoked_at: string | null;
+      }>(
+        'SELECT person_id, sign_public_key, box_public_key, platform, revoked_at FROM space_devices WHERE id = ?',
+        [device.id],
+      );
+      const current = rows[0];
+      if (current?.revoked_at) return false;
+      if (
+        current &&
+        current.person_id === device.personId &&
+        current.sign_public_key === device.signPublicKey &&
+        current.box_public_key === device.boxPublicKey &&
+        current.platform === device.platform
+      ) {
+        return false;
+      }
+      const version = await this.journal.stamp(tx);
+      const author = await this.journal.selfPersonId(tx);
+      const now = this.clock.now().toString();
+      await tx.run(
+        `INSERT INTO space_devices
+           (id, person_id, sign_public_key, box_public_key, platform, revoked_at, version, author_person_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET
+           person_id = excluded.person_id,
+           sign_public_key = excluded.sign_public_key,
+           box_public_key = excluded.box_public_key,
+           platform = excluded.platform,
+           version = excluded.version,
+           author_person_id = excluded.author_person_id,
+           updated_at = excluded.updated_at`,
+        [
+          device.id,
+          device.personId,
+          device.signPublicKey,
+          device.boxPublicKey,
+          device.platform,
+          version,
+          author,
+          now,
+          now,
+        ],
+      );
+      await this.journal.changed(tx, 'device', device.id, version);
+      return true;
+    });
+  }
+
+  /** The device list of the space, as received end to end. */
+  async devices(): Promise<SpaceDevice[]> {
+    const rows = await this.db.query<{
+      id: string;
+      person_id: string | null;
+      sign_public_key: string;
+      box_public_key: string;
+      platform: string;
+      revoked_at: string | null;
+    }>(
+      'SELECT id, person_id, sign_public_key, box_public_key, platform, revoked_at FROM space_devices ORDER BY created_at, id',
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      personId: r.person_id,
+      signPublicKey: r.sign_public_key,
+      boxPublicKey: r.box_public_key,
+      platform: r.platform,
+      revokedAt: r.revoked_at,
+    }));
+  }
+
   /** The shared start of the relationship as stored here. */
   async startOfRelationship(): Promise<StartOfRelationship | null> {
     const rows = await this.db.query<{
@@ -252,6 +349,7 @@ export class SyncStore {
     await this.db.transaction(async (tx) => {
       await tx.run('DELETE FROM outbox');
       await tx.run('DELETE FROM sync_state');
+      await tx.run('DELETE FROM space_devices');
       await tx.run('UPDATE persons SET is_placeholder = 1 WHERE is_self = 0');
     });
   }
