@@ -79,6 +79,37 @@ describe('AppLockService', () => {
     expect(lock.locked()).toBe(true);
   });
 
+  it('covers the app as soon as it leaves, and closes open dialogs when it locks', async () => {
+    const { lock, clock } = configure({ appLock: true, appLockAfter: 5 });
+    lock.init();
+    await lock.unlock();
+    lock.onPause();
+    expect(lock.covered()).toBe(true); // before the thumbnail is taken
+    clock.set('2026-10-24T08:01:00Z');
+    lock.onResume();
+    expect(lock.covered()).toBe(false); // not due yet: nothing to unlock
+    expect(lock.locked()).toBe(false);
+
+    const dialog = Object.assign(document.createElement('ion-alert'), {
+      dismiss: async () => {
+        dialog.remove();
+        return true;
+      },
+    });
+    document.body.appendChild(dialog);
+    lock.onPause();
+    clock.set('2026-10-24T08:30:00Z');
+    lock.onResume();
+    expect(lock.locked()).toBe(true);
+    expect(document.querySelector('ion-alert')).toBeNull();
+  });
+
+  it('never covers or locks with the lock off', () => {
+    const { lock } = configure();
+    lock.onPause();
+    expect(lock.covered()).toBe(false);
+  });
+
   it('stays locked after a cancel, and ignores the pause the unlock prompt itself causes', async () => {
     const { lock, port, clock } = configure({ appLock: true, appLockAfter: 0 });
     lock.init();

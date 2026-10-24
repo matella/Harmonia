@@ -8,7 +8,8 @@ Decided by the product owner (2026-10-24): **phone unlock**. Harmonia keeps no P
   - Turning it on asks to unlock once, so nobody locks themselves out by mistake. A cancel or a failure leaves it off.
 - **Lock after**: right away, or after 1, 5 or 15 minutes in the background (default 1 minute).
 - Harmonia **starts locked**, and locks again when it comes back after the chosen time. A clock that went backwards locks too.
-- The **lock screen** covers everything, and the app under it is inert (not reachable by touch or screen reader). The phone's unlock prompt opens by itself, once; after a cancel, *Unlock* opens it again.
+- The **lock screen** covers everything, and the app under it is inert (not reachable by touch or screen reader). Locking closes any open dialog first (dialogs sit outside the part made inert).
+- As soon as the app leaves the foreground with the lock on, a plain cover hides it; on return it becomes the lock screen, or goes away if the lock isn't due yet. The phone's unlock prompt opens by itself, once; after a cancel, *Unlock* opens it again.
 - The phone's own PIN screen sends the app to the background and back while unlocking; that pause doesn't count.
 - **Widgets and the watch** keep showing what their own privacy setting allows (Settings › Widgets and watch). Notifications follow their own setting too.
 
@@ -30,5 +31,5 @@ Decided by the product owner (2026-10-24): **phone unlock**. Harmonia keeps no P
 - Not verified: fingerprint or face (none enrolled on the emulator), iOS and Face ID, a real phone.
 
 ## Not covered
-- The app switcher's thumbnail can still show the last screen (Android `FLAG_SECURE` would also block the user's own screenshots).
+- The app switcher's thumbnail: the app covers itself with a plain screen as soon as it leaves the foreground (with the lock on), so the thumbnail and the first frame on return normally show nothing. This is best effort: if the system takes the thumbnail before the cover is drawn, it can show the last screen. Android `FLAG_SECURE` would close that gap, but would also block the user's own screenshots of the app.
 - A stolen phone whose screen lock is known: the app lock adds nothing then.

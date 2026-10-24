@@ -20,9 +20,19 @@ import { StartupErrorComponent } from './features/startup/startup-error.componen
         />
         @if (lock.locked()) {
           <hm-lock-screen />
+        } @else if (lock.covered()) {
+          <div class="cover" aria-hidden="true"></div>
         }
       }
     </ion-app>
+  `,
+  styles: `
+    .cover {
+      position: fixed;
+      inset: 0;
+      z-index: 100000;
+      background: var(--hm-surface);
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

@@ -22,18 +22,25 @@ export class AppLockService {
   private readonly t = inject(I18nService).translator;
 
   readonly locked = signal(false);
+  /**
+   * Set as soon as the app leaves the foreground with the lock on: a plain cover, so the
+   * recent-apps thumbnail and the first frame on return don't show anything. On return it
+   * becomes the lock screen, or goes away if the lock isn't due yet.
+   */
+  readonly covered = signal(false);
   private backgroundSince: number | null = null;
   /** The system prompt (or the PIN screen) can send the app to the background itself. */
   private unlocking = false;
 
   /** At startup, once settings are loaded and before anything is shown. */
   init(): void {
-    this.locked.set(this.store.settings().appLock);
+    if (this.store.settings().appLock) this.lock();
   }
 
   onPause(): void {
     if (this.unlocking || this.locked()) return;
     this.backgroundSince = this.clock.now().epochMilliseconds;
+    if (this.store.settings().appLock) this.covered.set(true);
   }
 
   onResume(): void {
@@ -47,9 +54,20 @@ export class AppLockService {
         this.clock.now().epochMilliseconds,
       )
     ) {
-      this.locked.set(true);
+      this.lock();
     }
+    this.covered.set(false);
     this.backgroundSince = null;
+  }
+
+  /** Locks, closing any open dialog first: it would sit above the lock screen's reach. */
+  private lock(): void {
+    for (const overlay of document.querySelectorAll<
+      HTMLElement & { dismiss?: () => Promise<boolean> }
+    >('ion-alert, ion-modal, ion-action-sheet, ion-popover, ion-picker, ion-loading, ion-toast')) {
+      void overlay.dismiss?.();
+    }
+    this.locked.set(true);
   }
 
   deviceIsSecure(): Promise<boolean> {
