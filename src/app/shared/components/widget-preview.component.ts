@@ -35,7 +35,9 @@ import { EmblemComponent } from './emblem.component';
         @if (s.state === 'ready') {
           <div class="col">
             @if (s.privacy !== 'minimal') {
-              <span class="brand"><hm-emblem [size]="16" />{{ s.displayName ?? t.t('app.name') }}</span>
+              <span class="brand"><hm-emblem [size]="16" />{{
+                s.displayName ? t.t('home.greeting', { name: s.displayName }) : t.t('app.name')
+              }}</span>
             }
             <span class="big hm-num">{{ primary() }}</span>
             <span class="small">{{ secondary() }}</span>

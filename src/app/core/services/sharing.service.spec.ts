@@ -57,6 +57,14 @@ describe('SharingService background sync', () => {
     expect((sharing as unknown as { loading: unknown }).loading).toBeNull();
   });
 
+  it('answers "off" for a solo device on screens that ask, and loads nothing', async () => {
+    const { db, sharing } = setUp({ url: 'http://127.0.0.1:54321', publishableKey: 'k' });
+    expect(await sharing.ensureStatus()).toBe('off');
+    expect(sharing.sharingOn()).toBe(false);
+    expect(db.stateChecks).toBe(1);
+    expect((sharing as unknown as { loading: unknown }).loading).toBeNull();
+  });
+
   it('does nothing at all when no sharing server is configured', async () => {
     const { db, sharing } = setUp(null);
     expect(sharing.available).toBe(false);

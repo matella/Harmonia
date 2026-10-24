@@ -121,10 +121,18 @@ export class SharingService {
     }
   }
 
-  /** The status, checked once if it isn't known yet. Never throws. */
+  /**
+   * The status, checked if it isn't known yet. Never throws. A solo device stops after the
+   * local database check, like `autoSync`: the sharing code (libsodium, Supabase) isn't loaded.
+   */
   async ensureStatus(): Promise<SharingView> {
     if (this.status() !== 'unknown' || !this.available) return this.status();
-    return this.refresh().catch(() => this.status());
+    try {
+      if (!(await this.db.repos.sync.state())) return 'off';
+      return await this.refresh();
+    } catch {
+      return this.status();
+    }
   }
 
   async refresh(): Promise<SharingView> {

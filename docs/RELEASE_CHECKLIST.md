@@ -9,7 +9,7 @@ Nothing here is complete until checked on real builds. Items marked ✅ were ver
 
 ## Android (Google Play)
 - [ ] Create an upload keystore; configure `signingConfigs.release` via `~/.gradle/gradle.properties` (never commit secrets); build `bun run android:release` (AAB) for phone and `:wear:bundleRelease` for Wear OS.
-- [x] ✅ R8 on for phone and Wear (`minifyEnabled`, `shrinkResources`). Capacitor's own keep rules apply; only the excluded ML Kit needed a rule. Release APK tested on the API 37.2 emulator (2026-10-24): onboarding, photo picker, notification prompt and reminder alarm, app lock check, export share sheet, small widget; no missing-class errors. Not run under R8: the QR scanner (only reachable with sharing on) and the Wear release build on a watch.
+- [x] ✅ R8 on for phone and Wear (`minifyEnabled`, `shrinkResources`). Capacitor's own keep rules apply; only the excluded ML Kit needed a rule. Release APK tested on the API 37.2 emulator (2026-10-24): onboarding, photo picker, notification prompt and reminder alarm, app lock (turned on with the PIN, then locked on return and unlocked), export share sheet, small widget; no missing-class errors. Not run under R8 yet: the QR scanner and the secure store (both only reachable with sharing on), the wide widget and the widget settings screen, and the Wear release build on a watch.
 - [ ] Data safety form: no data collected or shared; data stored on device; deletion available in-app.
 - [ ] Permissions review: POST_NOTIFICATIONS (contextual), RECEIVE_BOOT_COMPLETED, INTERNET (WebView runtime only). ✅ SCHEDULE_EXACT_ALARM removed from the merged manifest.
 - [ ] Wear OS: test on a Wear OS 3+ emulator/watch (no Wear system image was installed here), screenshots for the watch listing.
