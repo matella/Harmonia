@@ -306,6 +306,7 @@ export const NL: EnCatalog = {
   'memories.add': 'Herinnering toevoegen',
   'memories.emptyTitle': 'Bewaar de kleine dingen',
   'memories.emptyBody': 'Een notitie, een foto, een moment dat je nooit wilt vergeten. Herinneringen blijven privé op dit toestel.',
+  'memories.emptyBodyShared': 'Een notitie, een foto, een moment dat je nooit wilt vergeten. Herinneringen worden alleen met je partner gedeeld, end-to-end versleuteld.',
   'memory.newTitle': 'Nieuwe herinnering',
   'memory.editTitle': 'Herinnering bewerken',
   'memory.titleLabel': 'Titel',
@@ -625,6 +626,8 @@ export const NL: EnCatalog = {
     'Alles wat je aan Harmonia toevoegt — datums, notities en foto’s — wordt alleen op dit toestel bewaard. Geen account, geen synchronisatie en geen tracking. Niets verlaat je toestel, tenzij je het zelf exporteert.',
   'privacy.statementWithUsage':
     'Alles wat je aan Harmonia toevoegt — datums, notities en foto’s — wordt alleen op dit toestel bewaard. Geen account en geen synchronisatie. Anoniem gebruik delen staat uit tot je het hieronder aanzet, en het bevat nooit iets wat je schrijft of bewaart.',
+  'privacy.statementSharing': 'Alles wat je aan Harmonia toevoegt — datums, notities en foto’s — wordt op dit toestel bewaard. Zolang je met je partner deelt, gaan je profiel, datums en herinneringen, met foto’s, ook via de deelserver naar diens toestellen, end-to-end versleuteld: de server kan ze niet lezen. Er is geen tracking.',
+  'privacy.statementSharingWithUsage': 'Alles wat je aan Harmonia toevoegt — datums, notities en foto’s — wordt op dit toestel bewaard. Zolang je met je partner deelt, gaan je profiel, datums en herinneringen, met foto’s, ook via de deelserver naar diens toestellen, end-to-end versleuteld: de server kan ze niet lezen. Anoniem gebruik delen staat uit tenzij je het hieronder aanzet, en bevat nooit iets wat je schrijft of bewaart.',
   'privacy.export': 'Je gegevens exporteren',
   'privacy.exportHint': 'Maakt een ZIP-bestand met je datums, herinneringen, instellingen en foto’s dat je kunt bewaren of delen.',
   'privacy.exportAction': 'Exporteren',

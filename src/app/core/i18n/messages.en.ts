@@ -304,6 +304,7 @@ export const EN = {
   'memories.add': 'Add a memory',
   'memories.emptyTitle': 'Keep the small things',
   'memories.emptyBody': 'A note, a photo, a moment you never want to lose. Memories stay private on this device.',
+  'memories.emptyBodyShared': 'A note, a photo, a moment you never want to lose. Memories are shared only with your partner, end-to-end encrypted.',
   'memory.newTitle': 'New memory',
   'memory.editTitle': 'Edit memory',
   'memory.titleLabel': 'Title',
@@ -621,6 +622,8 @@ export const EN = {
     'Everything you add to Harmonia — dates, notes and photos — is stored only on this device. There is no account, no sync and no tracking. Nothing leaves your device unless you export it yourself.',
   'privacy.statementWithUsage':
     'Everything you add to Harmonia — dates, notes and photos — is stored only on this device. There is no account and no sync. Anonymous usage sharing is off unless you turn it on below, and it never includes anything you write or save.',
+  'privacy.statementSharing': 'Everything you add to Harmonia — dates, notes and photos — is stored on this device. While you share with your partner, your profile, dates and memories, photos included, also reach their devices through the sharing server, end-to-end encrypted: the server can’t read them. There is no tracking.',
+  'privacy.statementSharingWithUsage': 'Everything you add to Harmonia — dates, notes and photos — is stored on this device. While you share with your partner, your profile, dates and memories, photos included, also reach their devices through the sharing server, end-to-end encrypted: the server can’t read them. Anonymous usage sharing is off unless you turn it on below, and it never includes anything you write or save.',
   'privacy.export': 'Export your data',
   'privacy.exportHint': 'Creates a ZIP file with your dates, memories, settings and photos that you can save or share.',
   'privacy.exportAction': 'Export',

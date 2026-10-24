@@ -79,6 +79,7 @@ interface UpcomingItem {
           />
         } @else {
           <ion-segment
+            scrollable
             [value]="filter()"
             (ionChange)="filter.set($any($event.detail.value))"
             [attr.aria-label]="'dates.filter' | t"
@@ -138,6 +139,10 @@ interface UpcomingItem {
   styles: `
     ion-segment {
       margin-top: var(--hm-space-2);
+    }
+    /* Fills the row as usual; with large text the labels keep their width and scroll. */
+    ion-segment-button {
+      flex: 1 0 auto;
     }
     .first {
       margin-top: var(--hm-space-6);

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonTitle, IonToolbar } from '@ionic/angular';
 
+import { SharingService } from '../../core/services/sharing.service';
 import { AppStore } from '../../core/state/app-store';
 import { EmptyStateComponent } from '../../shared/components/empty-state.component';
 import { PhotoFrameComponent } from '../../shared/components/photo-frame.component';
@@ -40,7 +41,7 @@ import { I18N_PIPES } from '../../shared/pipes/i18n.pipes';
           <hm-empty-state
             icon="images-outline"
             [title]="'memories.emptyTitle' | t"
-            [body]="'memories.emptyBody' | t"
+            [body]="(sharing.sharingOn() ? 'memories.emptyBodyShared' : 'memories.emptyBody') | t"
             [actionLabel]="'memories.add' | t"
             (action)="add()"
           />
@@ -125,6 +126,11 @@ import { I18N_PIPES } from '../../shared/pipes/i18n.pipes';
 export class MemoriesPage {
   protected readonly store = inject(AppStore);
   private readonly router = inject(Router);
+  protected readonly sharing = inject(SharingService);
+
+  ionViewWillEnter(): void {
+    void this.sharing.ensureStatus();
+  }
 
   protected add(): void {
     void this.router.navigateByUrl('/memory/new');

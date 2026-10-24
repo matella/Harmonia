@@ -307,6 +307,7 @@ export const FR: EnCatalog = {
   'memories.emptyTitle': 'Gardez les petites choses',
   'memories.emptyBody':
     'Une note, une photo, un moment que vous ne voulez jamais oublier. Les souvenirs restent privés sur cet appareil.',
+  'memories.emptyBodyShared': 'Une note, une photo, un moment que vous ne voulez jamais oublier. Les souvenirs ne sont partagés qu’avec votre partenaire, chiffrés de bout en bout.',
   'memory.newTitle': 'Nouveau souvenir',
   'memory.editTitle': 'Modifier le souvenir',
   'memory.titleLabel': 'Titre',
@@ -625,6 +626,8 @@ export const FR: EnCatalog = {
     'Tout ce que vous ajoutez à Harmonia — dates, notes et photos — est stocké uniquement sur cet appareil. Pas de compte, pas de synchronisation, pas de suivi. Rien ne quitte votre appareil, sauf si vous l’exportez vous-même.',
   'privacy.statementWithUsage':
     'Tout ce que vous ajoutez à Harmonia — dates, notes et photos — est stocké uniquement sur cet appareil. Pas de compte, pas de synchronisation. Le partage anonyme de l’utilisation est désactivé tant que vous ne l’activez pas ci-dessous, et il n’inclut jamais ce que vous écrivez ou enregistrez.',
+  'privacy.statementSharing': 'Tout ce que vous ajoutez à Harmonia — dates, notes et photos — est enregistré sur cet appareil. Tant que vous partagez avec votre partenaire, votre profil, vos dates et vos souvenirs, photos comprises, arrivent aussi sur ses appareils via le serveur de partage, chiffrés de bout en bout : le serveur ne peut pas les lire. Aucun suivi.',
+  'privacy.statementSharingWithUsage': 'Tout ce que vous ajoutez à Harmonia — dates, notes et photos — est enregistré sur cet appareil. Tant que vous partagez avec votre partenaire, votre profil, vos dates et vos souvenirs, photos comprises, arrivent aussi sur ses appareils via le serveur de partage, chiffrés de bout en bout : le serveur ne peut pas les lire. Le partage anonyme d’utilisation reste désactivé sauf si vous l’activez ci-dessous, et il ne contient jamais ce que vous écrivez ou enregistrez.',
   'privacy.export': 'Exporter vos données',
   'privacy.exportHint':
     'Crée un fichier ZIP avec vos dates, souvenirs, réglages et photos, que vous pouvez enregistrer ou partager.',

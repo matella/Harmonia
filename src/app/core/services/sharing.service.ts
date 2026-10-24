@@ -1,4 +1,4 @@
-import { Injectable, InjectionToken, inject, signal } from '@angular/core';
+import { Injectable, InjectionToken, computed, inject, signal } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 
 import { createSecureKeyStore } from '../platform/secure-key-store';
@@ -76,6 +76,11 @@ export class SharingService {
 
   readonly available = this.server !== null;
   readonly status = signal<SharingView>('unknown');
+  /** In a shared space, as far as the last status check knows (see `ensureStatus`). */
+  readonly sharingOn = computed(() => {
+    const status = this.status();
+    return status === 'member' || status === 'memberWithoutKey' || status === 'joining';
+  });
 
   constructor() {
     // Local edits are uploaded shortly after they are saved; quick successive edits
@@ -114,6 +119,12 @@ export class SharingService {
         void this.notice.show(this.t.t('sharing.error.spaceFull'));
       }
     }
+  }
+
+  /** The status, checked once if it isn't known yet. Never throws. */
+  async ensureStatus(): Promise<SharingView> {
+    if (this.status() !== 'unknown' || !this.available) return this.status();
+    return this.refresh().catch(() => this.status());
   }
 
   async refresh(): Promise<SharingView> {

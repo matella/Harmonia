@@ -10,6 +10,7 @@ import { UsageService } from '../../core/services/usage.service';
 import { I18nService } from '../../core/services/i18n.service';
 import { NoticeService } from '../../core/services/notice.service';
 import { SettingsService } from '../../core/services/settings.service';
+import { SharingService } from '../../core/services/sharing.service';
 import { AppStore } from '../../core/state/app-store';
 import { I18N_PIPES } from '../../shared/pipes/i18n.pipes';
 import { ConfirmService } from '../../shared/services/confirm.service';
@@ -33,7 +34,7 @@ import { SettingsHeaderComponent } from './settings-header.component';
       <div class="hm-page">
         <p class="statement">
           <ion-icon name="lock-closed-outline" aria-hidden="true" />
-          <span>{{ (usage.available ? 'privacy.statementWithUsage' : 'privacy.statement') | t }}</span>
+          <span>{{ statementKey() | t }}</span>
         </p>
 
         <section class="hm-section" aria-labelledby="lock-heading">
@@ -141,6 +142,7 @@ export class PrivacyDataPage {
   private readonly settings = inject(SettingsService);
   protected readonly store = inject(AppStore);
   private readonly lock = inject(AppLockService);
+  private readonly sharing = inject(SharingService);
 
   /** Whether the phone has a screen lock to unlock with. */
   protected readonly lockAvailable = signal(false);
@@ -153,7 +155,19 @@ export class PrivacyDataPage {
     })),
   );
 
+  /** While sharing, the statement says what goes to the partner, end-to-end encrypted. */
+  protected readonly statementKey = computed(() =>
+    this.sharing.sharingOn()
+      ? this.usage.available
+        ? 'privacy.statementSharingWithUsage'
+        : 'privacy.statementSharing'
+      : this.usage.available
+        ? 'privacy.statementWithUsage'
+        : 'privacy.statement',
+  );
+
   constructor() {
+    void this.sharing.ensureStatus();
     void this.lock.deviceIsSecure().then((secure) => this.lockAvailable.set(secure));
   }
 

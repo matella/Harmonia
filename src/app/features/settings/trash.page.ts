@@ -153,11 +153,8 @@ export class TrashPage {
 
   protected async deleteForever(item: TrashItem): Promise<void> {
     // While sharing, a purge removes it from every device and the server too (§18).
-    const view =
-      this.sharing.status() === 'unknown'
-        ? await this.sharing.refresh().catch(() => 'unknown' as const)
-        : this.sharing.status();
-    const shared = view !== 'off' && view !== 'unknown';
+    await this.sharing.ensureStatus();
+    const shared = this.sharing.sharingOn();
     const ok = await this.confirm.confirmDestructive(
       this.t.t('trash.deleteForeverTitle'),
       this.t.t(shared ? 'trash.deleteForeverBodyShared' : 'trash.deleteForeverBody'),

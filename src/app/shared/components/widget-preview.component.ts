@@ -72,7 +72,9 @@ import { EmblemComponent } from './emblem.component';
     }
     .widget--small {
       flex: none;
-      width: 132px;
+      /* 132 px at the default text size; grows with large text like the real widget. */
+      width: 8.25rem;
+      max-width: 100%;
       aspect-ratio: 1;
       flex-direction: column;
       justify-content: space-between;
@@ -105,6 +107,7 @@ import { EmblemComponent } from './emblem.component';
       font-size: 1.9rem;
       line-height: 1.05;
       color: var(--hm-berry);
+      white-space: nowrap;
     }
     .mid {
       font-family: var(--hm-font-display);

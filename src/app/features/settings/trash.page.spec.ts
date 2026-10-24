@@ -4,6 +4,7 @@ import { provideRouter } from '@angular/router';
 import { provideIonicAngular } from '@ionic/angular';
 
 import { FakeNotificationPort } from '../../../testing/fake-notification-port';
+import { fakeSharingStatus } from '../../../testing/fake-sharing';
 import { MutableClock } from '../../core/domain/clock';
 import type { TrashItem } from '../../core/domain/models';
 import { SharingService, type SharingView } from '../../core/services/sharing.service';
@@ -31,10 +32,7 @@ function setup(view: SharingView) {
       provideRouter([]),
       { provide: NOTIFICATION_PORT, useValue: new FakeNotificationPort() },
       { provide: CLOCK, useValue: new MutableClock('2026-10-24T08:00:00Z', 'Europe/Brussels') },
-      {
-        provide: SharingService,
-        useValue: { status: signal<SharingView>('unknown'), refresh: async () => view },
-      },
+      { provide: SharingService, useValue: fakeSharingStatus(view) },
       {
         provide: TrashService,
         useValue: {
