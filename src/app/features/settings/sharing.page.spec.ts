@@ -6,7 +6,7 @@ import { provideIonicAngular } from '@ionic/angular';
 import { FakeNotificationPort } from '../../../testing/fake-notification-port';
 import { MutableClock } from '../../core/domain/clock';
 import { SharingService, type SharingView } from '../../core/services/sharing.service';
-import { CLOCK, NOTIFICATION_PORT } from '../../core/services/tokens';
+import { CLOCK, NOTIFICATION_PORT, QR_SCANNER } from '../../core/services/tokens';
 import { AppStore } from '../../core/state/app-store';
 import type { InviteProgress, JoinProgress } from '../../core/sync/sharing';
 import { ConfirmService } from '../../shared/services/confirm.service';
@@ -135,8 +135,10 @@ class FakeConfirm {
 describe('SharingPage', () => {
   let fake: FakeSharing;
   let confirm: FakeConfirm;
+  let scanner: { available: boolean; next: string | null; scan: () => Promise<string | null> };
 
   beforeEach(() => {
+    scanner = { available: true, next: null, scan: async () => scanner.next };
     fake = new FakeSharing();
     confirm = new FakeConfirm();
     TestBed.configureTestingModule({
@@ -147,6 +149,7 @@ describe('SharingPage', () => {
         { provide: CLOCK, useValue: new MutableClock('2026-10-23T08:00:00Z', 'Europe/Brussels') },
         { provide: SharingService, useValue: fake },
         { provide: ConfirmService, useValue: confirm },
+        { provide: QR_SCANNER, useValue: scanner },
       ],
     });
     TestBed.inject(AppStore).profile.set({
@@ -269,6 +272,30 @@ describe('SharingPage', () => {
     expect(fake.calls).toContain('decline');
     expect(el.textContent).not.toContain('Your invite code');
     expect(el.textContent).toContain('Leave the shared space');
+    fixture.destroy();
+  });
+
+  it('shows the invite as a QR code, and fills the code from a scanned one', async () => {
+    fake.view = 'member';
+    fake.inviteCode = 'H1.code';
+    const first = await render();
+    await settle(first.fixture);
+    const qr = first.el.querySelector('hm-qr-code svg');
+    expect(qr?.getAttribute('aria-label')).toBe('Invite QR code');
+    expect(qr?.querySelector('path')?.getAttribute('d')).toMatch(/^M\d+ \d+h1v1h-1z/);
+    first.fixture.destroy();
+
+    fake.view = 'off';
+    fake.inviteCode = null;
+    const { fixture, el } = await render();
+    await click(fixture, 'Join with a code');
+    scanner.next = 'not an invite';
+    await click(fixture, 'Scan QR code');
+    expect(el.querySelector('[role="alert"]')?.textContent).toContain('isn’t a Harmonia invite');
+    const code = 'H1.' + 'A'.repeat(64);
+    scanner.next = code;
+    await click(fixture, 'Scan QR code');
+    expect((el.querySelector('#j-code') as HTMLTextAreaElement).value).toBe(code);
     fixture.destroy();
   });
 

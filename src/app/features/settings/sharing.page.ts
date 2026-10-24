@@ -26,6 +26,9 @@ import { SharingService } from '../../core/services/sharing.service';
 import { AppStore } from '../../core/state/app-store';
 import { I18N_PIPES, type MessageKey } from '../../shared/pipes/i18n.pipes';
 import { ConfirmService } from '../../shared/services/confirm.service';
+import { QR_SCANNER } from '../../core/services/tokens';
+import { parseInviteCode } from '../../core/sync/invite-code';
+import { QrCodeComponent } from '../../shared/components/qr-code.component';
 import { SettingsHeaderComponent } from './settings-header.component';
 
 type View =
@@ -54,7 +57,14 @@ const POLL_MS = 3000;
  */
 @Component({
   selector: 'hm-sharing',
-  imports: [IonContent, IonIcon, IonSpinner, SettingsHeaderComponent, ...I18N_PIPES],
+  imports: [
+    IonContent,
+    IonIcon,
+    IonSpinner,
+    QrCodeComponent,
+    SettingsHeaderComponent,
+    ...I18N_PIPES,
+  ],
   template: `
     <hm-settings-header [title]="'sharing.title' | t" />
     <ion-content>
@@ -307,6 +317,16 @@ const POLL_MS = 3000;
                   'sharing.codeFieldHint' | t
                 }}</span>
               </div>
+              @if (scanner.available) {
+                <button
+                  type="button"
+                  class="hm-btn hm-btn--outline"
+                  [disabled]="busy()"
+                  (click)="scan()"
+                >
+                  <ion-icon name="qr-code-outline" aria-hidden="true" />{{ 'sharing.scanCode' | t }}
+                </button>
+              }
               <div class="hm-field">
                 <label class="hm-field__label" for="j-name">{{ 'sharing.yourName' | t }}</label>
                 <input
@@ -474,6 +494,8 @@ const POLL_MS = 3000;
                 <p class="hm-section__hint">
                   {{ (invite.forMe ? 'sharing.addDeviceCodeHint' : 'sharing.codeHint') | t }}
                 </p>
+                <hm-qr-code class="qr" [value]="invite.code" [label]="'sharing.qrLabel' | t" />
+                <p class="hm-section__hint">{{ 'sharing.qrHint' | t }}</p>
                 <p class="code hm-card" translate="no">{{ invite.code }}</p>
                 <div class="actions">
                   <button type="button" class="hm-btn hm-btn--outline" (click)="copy(invite.code)">
@@ -750,6 +772,9 @@ const POLL_MS = 3000;
       overflow-wrap: anywhere;
       user-select: all;
     }
+    hm-qr-code.qr {
+      margin: var(--hm-space-4) 0 var(--hm-space-2);
+    }
     .code-input {
       font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
       resize: vertical;
@@ -815,6 +840,7 @@ export class SharingPage implements OnInit, OnDestroy {
   private readonly notice = inject(NoticeService);
   private readonly confirm = inject(ConfirmService);
   private readonly exporter = inject(DataExportService);
+  protected readonly scanner = inject(QR_SCANNER);
 
   protected readonly view = signal<View>({ kind: 'loading' });
   protected readonly busy = signal(false);
@@ -1015,6 +1041,18 @@ export class SharingPage implements OnInit, OnDestroy {
     await this.run(async () => {
       this.showInvite(await this.sharing.createInvite(true), true);
     });
+  }
+
+  /** Fills the code field from the invite's QR code; the name and Join stay with the user. */
+  protected async scan(): Promise<void> {
+    this.error.set('');
+    const text = await this.scanner.scan();
+    if (text === null) return;
+    if (!parseInviteCode(text)) {
+      this.error.set(this.t.t('sharing.scanFailed'));
+      return;
+    }
+    this.codeText.set(text);
   }
 
   protected async join(): Promise<void> {

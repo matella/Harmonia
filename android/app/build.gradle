@@ -45,6 +45,12 @@ repositories {
     }
 }
 
+// The invite scanner uses ZXing; ML Kit is left out: its terms let it send usage metrics to
+// Google, and Harmonia makes no such calls (docs/PARTNER_SYNC.md §20).
+configurations.all {
+    exclude group: 'com.google.mlkit'
+}
+
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"

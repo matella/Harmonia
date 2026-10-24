@@ -940,3 +940,11 @@ Phase 6's server-side part, done before real users (`20261024000200_limits.sql`,
 
 **Still open for phase 6:** app attestation (Play Integrity / App Attest) to keep non-Harmonia clients out; the privacy policy, store forms and link domain (need the product owner).
 
+
+## 20. QR invites (2026-10-24)
+
+- **Showing:** while an invite waits, the sharing screen draws its code as a QR code (`shared/components/qr-code.component.ts`: `uqr` encodes it, error correction M, drawn as one SVG path, so it stays sharp and themable), with the text code below for sending it.
+- **Scanning:** the join form has *Scan QR code* (native only, `core/platform/qr-scanner.ts`). It only fills the code field after checking it with `parseInviteCode`; the name and *Join* stay with the user. A code that isn't an invite says so; a cancel does nothing.
+- **Android:** `@capacitor/barcode-scanner` with the **ZXing** engine. ML Kit is excluded from the build (`configurations.all { exclude group: 'com.google.mlkit' }` in `android/app/build.gradle`): its terms let it send usage metrics to Google, and Harmonia makes no such calls. The debug APK was checked: no ML Kit classes or init provider (the release build is checked in release prep). The plugin needs **minSdk 26** (Android 8.0), raised from 24.
+- **iOS:** the plugin uses AVFoundation; the camera usage text now mentions scanning invites (EN/FR/NL).
+- **Verified:** page spec with a fake scanner (fills the code, refuses a non-invite, ignores a cancel). On the API 37.2 emulator: the shown QR code, screenshotted and decoded with zxing-cpp, equals the invite code exactly; the ZXing scanner opened on the camera and Back returned to the app with a cancel, no crash. Not verified: a scan of a real code by a real camera, iOS.

@@ -54,19 +54,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harmonia only opens the camera if you choose to take a photo for a memory."
+            "value": "Harmonia only opens the camera when you choose to: to take a photo for a memory, or to scan an invite code."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harmonia n’ouvre l’appareil photo que si vous choisissez de prendre une photo pour un souvenir."
+            "value": "Harmonia n’ouvre l’appareil photo que si vous le choisissez : pour prendre une photo pour un souvenir, ou scanner un code d’invitation."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harmonia opent de camera alleen als je ervoor kiest een foto te maken voor een herinnering."
+            "value": "Harmonia opent de camera alleen als je daarvoor kiest: om een foto te maken voor een herinnering, of om een uitnodigingscode te scannen."
           }
         }
       }
