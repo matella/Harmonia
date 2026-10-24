@@ -178,7 +178,7 @@ describe('memories between two devices', () => {
         .filter((r) => r.recordType === 'memory')
         .map((r) => r.recordId),
     ).toEqual([old.id]);
-    expect((await a.store.state())?.capability).toBe(5);
+    expect((await a.store.state())?.capability).toBe(6);
     await a.engine.sync();
     expect(server.all().filter((r) => r.recordType === 'memory')).toHaveLength(1);
   });

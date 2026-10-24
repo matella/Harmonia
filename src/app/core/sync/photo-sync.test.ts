@@ -1,10 +1,12 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { MutableClock } from '../domain/clock';
-import type { ValidMemory } from '../domain/validation';
+import type { ValidMemory, ValidMilestone, ValidProfile } from '../domain/validation';
 import { ChangeJournal } from '../persistence/change-journal';
 import { newId } from '../persistence/ids';
 import { MemoryRepository } from '../persistence/memory.repository';
+import { MilestoneRepository } from '../persistence/milestone.repository';
+import { RelationshipRepository } from '../persistence/relationship.repository';
 import { migrate } from '../persistence/migrations';
 import { SqlJsDriver } from '../persistence/sqljs-driver';
 import { TrashRepository } from '../persistence/trash.repository';
@@ -73,6 +75,8 @@ async function device(server: InMemoryTransport, photos: InMemoryPhotoTransport,
     store,
     files,
     memories: new MemoryRepository(driver, clock, newId, journal),
+    milestones: new MilestoneRepository(driver, clock, newId, journal),
+    profiles: new RelationshipRepository(driver, clock, newId, journal),
     trash: new TrashRepository(driver, clock, journal),
     /** As Sharing.sync: photos up, records, then photos down. */
     sync: async () => {
@@ -262,5 +266,92 @@ describe('photos between two devices', () => {
     await a.sync();
     expect((await photos.usage()).used).toBe(0);
     expect(photos.parts.size).toBe(0);
+  });
+
+  it('shares a date’s photo, then its replacement and its removal, freeing the old space', async () => {
+    const { photos, a, b } = await pair();
+    const trip: ValidMilestone = {
+      title: 'First trip',
+      category: 'first_trip',
+      eventDate: '2025-03-02',
+      eventTime: null,
+      recurrence: 'none',
+      leapDayPolicy: null,
+      note: null,
+      isPinned: false,
+      remindersEnabled: false,
+      reminders: [],
+    };
+    a.files.local.set('media/d1.jpg', jpeg(150 * 1024, 1));
+    const date = await a.milestones.create(trip, 'media/d1.jpg');
+    // The date itself goes up at once; its photo in a second version once the file is up.
+    await a.sync();
+    await b.sync();
+    const received = await b.milestones.get(date.id);
+    expect(received?.title).toBe('First trip');
+    expect(
+      Buffer.from(b.files.saved.get(received!.photoPath!)!).equals(
+        Buffer.from(jpeg(150 * 1024, 1)),
+      ),
+    ).toBe(true);
+    expect((await photos.usage()).used).toBe(150 * 1024);
+
+    // Replaced: the new photo arrives, and the old one's space is freed.
+    a.files.local.set('media/d2.jpg', jpeg(90 * 1024, 2));
+    await a.milestones.update(date.id, trip, 'media/d2.jpg');
+    await a.sync();
+    await a.sync(); // the version carrying the new photo goes up, then the old blob is freed
+    await b.sync();
+    const replaced = await b.milestones.get(date.id);
+    expect(b.files.saved.get(replaced!.photoPath!)?.length).toBe(90 * 1024);
+    expect((await photos.usage()).used).toBe(90 * 1024);
+
+    // Removed: gone on the other device too, and its space is freed.
+    await a.milestones.update(date.id, trip, null);
+    await a.sync();
+    await b.sync();
+    expect((await b.milestones.get(date.id))?.photoPath).toBeNull();
+    expect((await photos.usage()).used).toBe(0);
+    expect(photos.parts.size).toBe(0);
+  });
+
+  it('shares the profile photo', async () => {
+    const { a, b } = await pair();
+    const profile: ValidProfile = {
+      displayName: 'Sam',
+      selfName: 'Alex',
+      relationshipLabel: null,
+      startDate: '2024-06-14',
+      startTime: null,
+      startTimeZoneId: null,
+      calendarTimeZoneId: 'Europe/Brussels',
+    };
+    a.files.local.set('media/p.jpg', jpeg(120 * 1024, 3));
+    await a.profiles.save(profile, 'media/p.jpg');
+    await a.sync();
+    await a.sync();
+    await b.sync();
+    const got = await b.profiles.get();
+    expect(got?.photoPath).toMatch(/^media\//);
+    expect(b.files.saved.get(got!.photoPath!)?.length).toBe(120 * 1024);
+  });
+
+  it('stops trying a photo that keeps failing its checks after five tries', async () => {
+    const { photos, a, b } = await pair();
+    a.files.local.set('media/1.jpg', jpeg(50 * 1024));
+    await a.memories.create(memory(), [{ filePath: 'media/1.jpg', thumbnailPath: null }]);
+    await a.sync();
+    const [key] = [...photos.parts.keys()];
+    const bad = photos.parts.get(key)!.slice();
+    bad[10] ^= 1;
+    photos.parts.set(key, bad);
+    let downloads = 0;
+    const download = photos.download.bind(photos);
+    photos.download = async (...args) => {
+      downloads++;
+      return download(...args);
+    };
+    for (let i = 0; i < 8; i++) await b.sync();
+    expect(downloads).toBe(5);
   });
 });

@@ -2,7 +2,13 @@ import type { Clock } from '../domain/clock';
 import { compareHlc, ZERO_HLC, type Hlc } from '../domain/hlc';
 import { SYNC_SCHEMA, type SyncedRecordType } from '../domain/sync-schema';
 import type { ChangeJournal } from '../persistence/change-journal';
-import { PURGEABLE_TYPES, queueBlobRelease, type PurgeableType } from '../persistence/purge';
+import {
+  PHOTO_TABLES,
+  PURGEABLE_TYPES,
+  queueBlobRelease,
+  type PhotoOwner,
+  type PurgeableType,
+} from '../persistence/purge';
 import type { SqlDriver, SqlExecutor, SqlValue } from '../persistence/sql-driver';
 
 /**
@@ -43,6 +49,17 @@ export interface SpaceDevice {
   platform: string;
   revokedAt: string | null;
 }
+
+/** A photo of a memory, a date or the profile, by the record that holds it. */
+export interface PhotoRef {
+  owner: PhotoOwner;
+  id: string;
+  filePath: string;
+  blobId: string | null;
+}
+
+/** A received photo that keeps failing its checks is tried this many times. */
+export const MAX_DOWNLOAD_ATTEMPTS = 5;
 
 /** The profile is one row per space; on the server it needs a UUID. */
 export const PROFILE_RECORD_ID = '00000000-0000-4000-8000-000000000001';
@@ -390,56 +407,102 @@ export class SyncStore {
   }
 
   // -------------------------------------------------------------------------------
-  // Photos (PARTNER_SYNC §18). Local columns only: no new version, nothing queued.
+  // Photos (PARTNER_SYNC §18): a memory's photos, a date's photo, the profile photo.
 
-  /** This device's photos not on the server yet (trashed memories included: they can come back). */
-  async photosToUpload(): Promise<{ id: string; filePath: string; blobId: string | null }[]> {
-    const rows = await this.db.query<{ id: string; file_path: string; blob_id: string | null }>(
-      `SELECT id, file_path, blob_id FROM memory_media
-       WHERE blob_state = 'local' AND deleted_at IS NULL AND file_path IS NOT NULL
+  /**
+   * This device's photos not on the server yet (trashed items included: they can come
+   * back). A memory's photo record waits for its file; a date or the profile syncs at once
+   * and gets its photo in a new version once the file is up.
+   */
+  async photosToUpload(): Promise<PhotoRef[]> {
+    const rows = await this.db.query<{
+      owner: PhotoOwner;
+      id: string | number;
+      file_path: string;
+      blob_id: string | null;
+    }>(
+      `SELECT 'memory_media' AS owner, id, file_path, blob_id, created_at FROM memory_media
+         WHERE blob_state = 'local' AND deleted_at IS NULL AND file_path IS NOT NULL
+       UNION ALL
+       SELECT 'milestone', id, photo_path, blob_id, created_at FROM milestones
+         WHERE blob_state = 'local' AND deleted_at IS NULL AND photo_path IS NOT NULL
+       UNION ALL
+       SELECT 'profile', id, photo_path, blob_id, created_at FROM relationship_profile
+         WHERE blob_state = 'local' AND photo_path IS NOT NULL
        ORDER BY created_at, id`,
     );
-    return rows.map((r) => ({ id: r.id, filePath: r.file_path, blobId: r.blob_id }));
+    return rows.map((r) => ({
+      owner: r.owner,
+      id: String(r.id),
+      filePath: r.file_path,
+      blobId: r.blob_id,
+    }));
   }
 
   /** The photo's blob, recorded before it is uploaded so a retry reuses its reservation. */
   async setPhotoBlob(
-    id: string,
+    photo: Pick<PhotoRef, 'owner' | 'id'>,
     blob: { blobId: string; key: string; header: string; size: number },
   ): Promise<void> {
     await this.db.run(
-      `UPDATE memory_media SET blob_id = ?, blob_key = ?, blob_header = ?, blob_size = ?
+      `UPDATE ${PHOTO_TABLES[photo.owner]} SET blob_id = ?, blob_key = ?, blob_header = ?, blob_size = ?
        WHERE id = ? AND blob_state = 'local'`,
-      [blob.blobId, blob.key, blob.header, blob.size, id],
+      [blob.blobId, blob.key, blob.header, blob.size, photo.id],
     );
   }
 
-  /** Its file is on the server: the photo's record may go up now. */
-  async markPhotoUploaded(id: string): Promise<void> {
-    await this.db.run(
-      `UPDATE memory_media SET blob_state = 'uploaded' WHERE id = ? AND blob_state = 'local'`,
-      [id],
-    );
+  /**
+   * Its file is on the server. A memory's photo record may go up now; a date or the
+   * profile goes up again, in a new version that carries the photo.
+   */
+  async markPhotoUploaded(photo: Pick<PhotoRef, 'owner' | 'id'>): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx.run(
+        `UPDATE ${PHOTO_TABLES[photo.owner]} SET blob_state = 'uploaded' WHERE id = ? AND blob_state = 'local'`,
+        [photo.id],
+      );
+      if (photo.owner === 'memory_media') return;
+      const version = await this.journal.stamp(tx);
+      await tx.run(`UPDATE ${PHOTO_TABLES[photo.owner]} SET version = ? WHERE id = ?`, [
+        version,
+        photo.id,
+      ]);
+      await this.journal.changed(tx, photo.owner, photo.id, version);
+    });
   }
 
-  /** Photos from the space whose file isn't on this device yet. */
+  /** Photos from the space whose file isn't on this device yet (a few tries each). */
   async photosToDownload(): Promise<
-    { id: string; blobId: string; key: string; header: string; size: number }[]
+    (Pick<PhotoRef, 'owner' | 'id'> & {
+      blobId: string;
+      key: string;
+      header: string;
+      size: number;
+    })[]
   > {
+    const where = `blob_state = 'remote' AND blob_id IS NOT NULL AND blob_key IS NOT NULL
+      AND blob_header IS NOT NULL AND blob_size IS NOT NULL AND download_attempts < ${MAX_DOWNLOAD_ATTEMPTS}`;
     const rows = await this.db.query<{
-      id: string;
+      owner: PhotoOwner;
+      id: string | number;
       blob_id: string;
       blob_key: string;
       blob_header: string;
       blob_size: number;
     }>(
-      `SELECT id, blob_id, blob_key, blob_header, blob_size FROM memory_media
-       WHERE blob_state = 'remote' AND deleted_at IS NULL AND blob_id IS NOT NULL
-         AND blob_key IS NOT NULL AND blob_header IS NOT NULL AND blob_size IS NOT NULL
+      `SELECT 'memory_media' AS owner, id, blob_id, blob_key, blob_header, blob_size, created_at
+         FROM memory_media WHERE ${where} AND deleted_at IS NULL
+       UNION ALL
+       SELECT 'milestone', id, blob_id, blob_key, blob_header, blob_size, created_at
+         FROM milestones WHERE ${where} AND deleted_at IS NULL
+       UNION ALL
+       SELECT 'profile', id, blob_id, blob_key, blob_header, blob_size, created_at
+         FROM relationship_profile WHERE ${where}
        ORDER BY created_at, id`,
     );
     return rows.map((r) => ({
-      id: r.id,
+      owner: r.owner,
+      id: String(r.id),
       blobId: r.blob_id,
       key: r.blob_key,
       header: r.blob_header,
@@ -447,15 +510,34 @@ export class SyncStore {
     }));
   }
 
+  /** The file is here now; only if the record still points at that blob. */
   async setPhotoDownloaded(
-    id: string,
+    photo: Pick<PhotoRef, 'owner' | 'id'> & { blobId: string },
     filePath: string,
     thumbnailPath: string | null,
   ): Promise<void> {
+    if (photo.owner === 'memory_media') {
+      await this.db.run(
+        `UPDATE memory_media SET file_path = ?, thumbnail_path = ?, blob_state = 'uploaded'
+         WHERE id = ? AND blob_state = 'remote' AND blob_id = ?`,
+        [filePath, thumbnailPath, photo.id, photo.blobId],
+      );
+      return;
+    }
+    // A date and the profile keep one file (no separate thumbnail; the startup cleanup
+    // removes the unused one).
     await this.db.run(
-      `UPDATE memory_media SET file_path = ?, thumbnail_path = ?, blob_state = 'uploaded'
-       WHERE id = ? AND blob_state = 'remote'`,
-      [filePath, thumbnailPath, id],
+      `UPDATE ${PHOTO_TABLES[photo.owner]} SET photo_path = ?, blob_state = 'uploaded'
+       WHERE id = ? AND blob_state = 'remote' AND blob_id = ?`,
+      [filePath, photo.id, photo.blobId],
+    );
+  }
+
+  /** A download that failed its checks or didn't arrive: counted, tried a few times. */
+  async photoDownloadFailed(photo: Pick<PhotoRef, 'owner' | 'id'>): Promise<void> {
+    await this.db.run(
+      `UPDATE ${PHOTO_TABLES[photo.owner]} SET download_attempts = download_attempts + 1 WHERE id = ?`,
+      [photo.id],
     );
   }
 
@@ -626,6 +708,16 @@ export class SyncStore {
       }
     }
 
+    // What photo this device had for a date or the profile, to notice a change.
+    const blobBefore =
+      record.type === 'milestone' || record.type === 'profile'
+        ? ((
+            await tx.query<{ blob_id: string | null }>(
+              `SELECT blob_id FROM ${schema.table} WHERE id = ?`,
+              [id],
+            )
+          )[0]?.blob_id ?? null)
+        : undefined;
     const columns = payloadColumns(record.type);
     const values = columns.map((c) => record.payload[c] ?? null);
     const now = this.clock.now().toString();
@@ -649,6 +741,15 @@ export class SyncStore {
     if (record.type === 'purge') {
       await this.removePurged(tx, record.payload['record_type'] as PurgeableType, id);
     }
+    if ((record.type === 'milestone' || record.type === 'profile') && blobBefore !== undefined) {
+      await this.receivedPhoto(
+        tx,
+        record.type,
+        id,
+        blobBefore,
+        record.payload['blob_id'] as string | null,
+      );
+    }
     // A pending local change to the same record lost to a newer remote one (or was replaced).
     await tx.run(
       `DELETE FROM outbox WHERE record_type = ? AND record_id = ? AND ${force ? '1 = 1' : 'version < ?'}`,
@@ -668,6 +769,7 @@ export class SyncStore {
     // A date's memories that went to the trash with it get purge records of their own.
     const memories = type === 'memory' ? [id] : [];
     if (type === 'milestone') {
+      await queueBlobRelease(tx, id, now, 'milestone');
       await tx.run('UPDATE memories SET milestone_id = NULL WHERE milestone_id = ?', [id]);
       await tx.run('DELETE FROM milestones WHERE id = ?', [id]); // reminder rules cascade
     }
@@ -687,6 +789,33 @@ export class SyncStore {
     await tx.run('DELETE FROM outbox WHERE record_type = ? AND record_id = ?', [type, id]);
   }
 
+  /**
+   * A date or the profile arrived with another photo than this device has: download the
+   * new one (the old file stays until it is replaced), or drop the photo if it was removed.
+   * The removed photo's file is left to the startup cleanup.
+   */
+  private async receivedPhoto(
+    tx: SqlExecutor,
+    owner: 'milestone' | 'profile',
+    id: string,
+    before: string | null,
+    after: string | null,
+  ): Promise<void> {
+    if (before === after) return;
+    const table = PHOTO_TABLES[owner];
+    if (after === null) {
+      await tx.run(
+        `UPDATE ${table} SET photo_path = NULL, blob_state = 'local', download_attempts = 0 WHERE id = ?`,
+        [id],
+      );
+    } else {
+      await tx.run(
+        `UPDATE ${table} SET blob_state = 'remote', download_attempts = 0 WHERE id = ?`,
+        [id],
+      );
+    }
+  }
+
   // -------------------------------------------------------------------------------
   // Freeing photo space on the server (§18)
 
@@ -695,7 +824,7 @@ export class SyncStore {
     const rows = await this.db.query<{ blob_id: string }>(
       `SELECT b.blob_id FROM blob_releases b
        WHERE NOT EXISTS (
-         SELECT 1 FROM outbox o WHERE o.record_type = 'purge' AND o.record_id = b.media_id)
+         SELECT 1 FROM outbox o WHERE o.record_type = b.waits_for AND o.record_id = b.media_id)
        ORDER BY b.created_at, b.blob_id`,
     );
     return rows.map((r) => r.blob_id);

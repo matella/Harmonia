@@ -789,7 +789,7 @@ Built as revised in §8 (key pair, separate `recovery` record, hashed lookups, s
 
 ## 18. Phase 5: memories and photos (2026-10-23)
 
-**Scope.** Memories (title, text, date, linked date) and the photos in them. The photo on a date and the profile photo stay on each device for now; they can follow the same path later.
+**Scope.** Memories (title, text, date, linked date) and the photos in them; since 2026-10-24 also the photo on a date and the profile photo (below).
 
 **Photos** (decided by the product owner, 2026-10-23, see §9): only the 2048 px version is uploaded, encrypted with its own random key in 64 KiB chunks (§3). The photo's record (`memory_media`) carries the blob ID, the file key, the stream header and the size, inside its encryption. A photo record reaches the server **only after its file is uploaded**; until then, and when the space is at its 2 GB limit, it waits in the outbox. Each device makes its own thumbnail after downloading.
 
@@ -860,6 +860,14 @@ Built as revised in §8 (key pair, separate `recovery` record, hashed lookups, s
 **Phase 5's done-when** ("photos appear on the other device; a resumable upload is verified"): photos appear on the other device, on the emulator. Resuming is verified in sql.js tests (per photo, as above), not on a device.
 
 **Left for slice 3 (done there, below):** freeing a photo's space when it is deleted for good, and deleting a space's photos when it is left. Still open: a received photo that fails its checks is retried on every sync; a cap on attempts would save the downloads.
+
+### Date and profile photos, and a retry cap (2026-10-24)
+
+- A date's photo and the profile photo travel like a memory's photos: encrypted, as parts, with the key in the record (local schema 8, capability 6). Unlike a memory's photo record, the date or profile itself syncs at once; its photo follows in a new version once the file is up.
+- A replaced or removed photo frees its old space once the new version is on the server. Deleting a date for good frees its photo too.
+- A device that receives another photo downloads it, and keeps the old file until the new one is in; a removed photo goes from the other device too. Records from an older app, without the photo fields, are still accepted.
+- A received photo that keeps failing its checks is tried five times, not on every sync forever.
+- Tests (sql.js): a date's photo shared, replaced and removed, with its space freed each time; the profile photo shared; a tampered photo downloaded five times, then left alone.
 
 ### Slice 3: deleting for good (2026-10-24)
 

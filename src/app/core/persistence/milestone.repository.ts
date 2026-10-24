@@ -5,6 +5,7 @@ import type { ReminderDraft, ValidMilestone } from '../domain/validation';
 import { ChangeJournal } from './change-journal';
 import type { IdFactory } from './ids';
 import type { SqlDriver, SqlExecutor, SqlRow } from './sql-driver';
+import { photoReplaced } from './purge';
 
 interface MilestoneRow extends SqlRow {
   id: string;
@@ -164,6 +165,8 @@ export class MilestoneRepository {
         [id],
       );
       if (existing.length === 0) throw new Error('Milestone not found');
+      const nextPhoto = photoPath === undefined ? existing[0].photo_path : photoPath;
+      if (nextPhoto !== existing[0].photo_path) await photoReplaced(tx, 'milestone', id, now);
       const version = await this.journal.stamp(tx);
       await tx.run(
         `UPDATE milestones SET title = ?, category = ?, event_date = ?, event_time = ?,
@@ -178,7 +181,7 @@ export class MilestoneRepository {
           input.recurrence,
           input.leapDayPolicy,
           input.note,
-          photoPath === undefined ? existing[0].photo_path : photoPath,
+          nextPhoto,
           input.isPinned ? 1 : 0,
           now,
           version,

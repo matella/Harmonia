@@ -71,8 +71,8 @@ const SERVER_RECORD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
  * update instead of staying behind the cursor for good.
  */
 // 2: device records (phase 3); 3: recovery records (phase 4); 4: memories and photos (phase 5);
-// 5: purges (phase 5, slice 3)
-export const SYNC_CAPABILITY = 5;
+// 5: purges (phase 5, slice 3); 6: date and profile photos
+export const SYNC_CAPABILITY = 6;
 
 /** The server's cap on one encrypted record (§19). */
 const MAX_RECORD_CIPHERTEXT = 65536;
@@ -335,8 +335,11 @@ function validPayload(type: SyncedRecordType, parsed: unknown): Record<string, S
     ...schema.meta.filter((c) => c === 'author_person_id' || c === 'deleted_at'),
   ]);
   const keys = Object.keys(data);
-  if (keys.length !== allowed.size || keys.some((k) => !allowed.has(k))) return null;
+  if (keys.some((k) => !allowed.has(k))) return null;
+  // Blob fields came later for dates and the profile: an older app's record has none.
+  for (const k of allowed) if (!keys.includes(k) && !k.startsWith('blob_')) return null;
   const payload: Record<string, SqlValue> = {};
+  for (const k of allowed) if (!keys.includes(k)) payload[k] = null;
   for (const k of keys) {
     const value = data[k];
     if (value !== null && typeof value !== 'string' && typeof value !== 'number') return null;

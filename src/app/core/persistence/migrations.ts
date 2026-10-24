@@ -309,6 +309,28 @@ export const MIGRATIONS: readonly Migration[] = [
       )`,
     ],
   },
+  {
+    version: 8,
+    name: 'shared date and profile photos (partner sharing)',
+    statements: [
+      // A date's photo and the profile photo travel like a memory's photos (PARTNER_SYNC
+      // §18): encrypted, their key inside the record.
+      ...['milestones', 'relationship_profile'].flatMap((table) => [
+        `ALTER TABLE ${table} ADD COLUMN blob_id TEXT`,
+        `ALTER TABLE ${table} ADD COLUMN blob_key TEXT`,
+        `ALTER TABLE ${table} ADD COLUMN blob_header TEXT`,
+        `ALTER TABLE ${table} ADD COLUMN blob_size INTEGER`,
+        `ALTER TABLE ${table} ADD COLUMN blob_state TEXT NOT NULL DEFAULT 'local' CHECK (blob_state IN ('local', 'uploaded', 'remote'))`,
+      ]),
+      // A received photo that keeps failing its checks is tried a few times, not forever.
+      ...['memory_media', 'milestones', 'relationship_profile'].map(
+        (table) => `ALTER TABLE ${table} ADD COLUMN download_attempts INTEGER NOT NULL DEFAULT 0`,
+      ),
+      // Which change must be on the server before a photo's space is freed: its purge, or
+      // the new version of the date or profile that no longer points at it.
+      `ALTER TABLE blob_releases ADD COLUMN waits_for TEXT NOT NULL DEFAULT 'purge'`,
+    ],
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

@@ -2,7 +2,7 @@ import { newId } from '../persistence/ids';
 import { fromBase64, toBase64 } from './encoding';
 import { PhotoStorageFullError, type PhotoTransport } from './photo-transport';
 import type { SyncCrypto } from './sync-crypto-port';
-import type { SyncStore } from './sync-store';
+import type { PhotoRef, SyncStore } from './sync-store';
 
 /**
  * Photos of shared memories (docs/PARTNER_SYNC.md §18). Each photo is encrypted with its
@@ -99,21 +99,20 @@ export class PhotoSync {
           header: fromBase64(photo.header),
           chunks,
         });
-        if (bytes.length !== photo.size) continue;
+        if (bytes.length !== photo.size) throw new Error('Wrong size');
         const saved = await this.files.saveDownloaded(bytes);
-        await this.store.setPhotoDownloaded(photo.id, saved.filePath, saved.thumbnailPath);
+        await this.store.setPhotoDownloaded(photo, saved.filePath, saved.thumbnailPath);
         downloaded++;
       } catch {
-        // Missing, tampered with or not an image: nothing is kept; tried again next time.
+        // Missing, tampered with or not an image: nothing is kept; tried again next time,
+        // a few times at most.
+        await this.store.photoDownloadFailed(photo);
       }
     }
     return downloaded;
   }
 
-  private async uploadOne(
-    spaceId: string,
-    photo: { id: string; filePath: string; blobId: string | null },
-  ): Promise<void> {
+  private async uploadOne(spaceId: string, photo: PhotoRef): Promise<void> {
     const bytes = await this.files.read(photo.filePath);
     if (!bytes || bytes.length === 0) throw new Error('Photo file missing');
     // An earlier attempt may have left parts under another header: start this photo again.
@@ -121,7 +120,7 @@ export class PhotoSync {
     const blobId = photo.blobId ?? newId();
     const encrypted = this.crypto.encryptBlob(bytes);
     // Recorded first, so a retry reuses the reservation instead of making another.
-    await this.store.setPhotoBlob(photo.id, {
+    await this.store.setPhotoBlob(photo, {
       blobId,
       key: toBase64(encrypted.fileKey),
       header: toBase64(encrypted.header),
@@ -132,7 +131,7 @@ export class PhotoSync {
       const chunks = encrypted.chunks.slice(part * CHUNKS_PER_PART, (part + 1) * CHUNKS_PER_PART);
       await this.transport.upload(spaceId, blobId, part, concat(chunks));
     }
-    await this.store.markPhotoUploaded(photo.id);
+    await this.store.markPhotoUploaded(photo);
   }
 }
 

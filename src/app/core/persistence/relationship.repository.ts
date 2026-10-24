@@ -4,6 +4,7 @@ import type { ValidProfile } from '../domain/validation';
 import { ChangeJournal } from './change-journal';
 import { newId as defaultNewId, type IdFactory } from './ids';
 import type { SqlDriver, SqlExecutor, SqlRow } from './sql-driver';
+import { photoReplaced } from './purge';
 
 interface ProfileRow extends SqlRow {
   relationship_label: string | null;
@@ -89,6 +90,7 @@ export class RelationshipRepository {
         await this.journal.changed(tx, 'person', id, version);
       }
 
+      if (existing && nextPhoto !== existing.photoPath) await photoReplaced(tx, 'profile', '1', now);
       const version = await this.journal.stamp(tx);
       await tx.run(
         `INSERT INTO relationship_profile

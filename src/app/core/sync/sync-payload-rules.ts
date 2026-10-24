@@ -47,6 +47,26 @@ const base64Of = (value: SqlValue, bytes: number) =>
 /** A photo is at most a 2048 px JPEG; anything near this is not one of ours. */
 const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
 
+/**
+ * A photo's blob fields come all together or not at all (a photo not uploaded yet, or no
+ * photo, has none; a record without them is still well-formed).
+ */
+function blobFields(p: Payload): boolean {
+  return (
+    (p['blob_id'] === null &&
+      p['blob_key'] === null &&
+      p['blob_header'] === null &&
+      p['blob_size'] === null) ||
+    (typeof p['blob_id'] === 'string' &&
+      UUID.test(p['blob_id']) &&
+      base64Of(p['blob_key'], 32) &&
+      base64Of(p['blob_header'], 24) &&
+      Number.isInteger(p['blob_size']) &&
+      (p['blob_size'] as number) > 0 &&
+      (p['blob_size'] as number) <= MAX_PHOTO_BYTES)
+  );
+}
+
 const RULES: Readonly<Partial<Record<SyncedRecordType, (p: Payload) => boolean>>> = {
   // Only these can be deleted for good: a purge naming anything else is refused (§18).
   purge: (p) =>
@@ -59,24 +79,12 @@ const RULES: Readonly<Partial<Record<SyncedRecordType, (p: Payload) => boolean>>
     optionalText(p['body'], LIMITS.memoryBody) &&
     isoDate(p['memory_date']) &&
     optionalUuid(p['trashed_with']),
-  // The blob fields come all together or not at all (a photo not uploaded yet never syncs,
-  // but a record without them is still well-formed).
   memory_media: (p) =>
     typeof p['memory_id'] === 'string' &&
     UUID.test(p['memory_id']) &&
     Number.isInteger(p['sort_order']) &&
     (p['sort_order'] as number) >= 0 &&
-    ((p['blob_id'] === null &&
-      p['blob_key'] === null &&
-      p['blob_header'] === null &&
-      p['blob_size'] === null) ||
-      (typeof p['blob_id'] === 'string' &&
-        UUID.test(p['blob_id']) &&
-        base64Of(p['blob_key'], 32) &&
-        base64Of(p['blob_header'], 24) &&
-        Number.isInteger(p['blob_size']) &&
-        (p['blob_size'] as number) > 0 &&
-        (p['blob_size'] as number) <= MAX_PHOTO_BYTES)),
+    blobFields(p),
   recovery: (p) => publicKey(p['public_key']),
   device: (p) =>
     (p['person_id'] === null ||
@@ -90,7 +98,8 @@ const RULES: Readonly<Partial<Record<SyncedRecordType, (p: Payload) => boolean>>
     isoDate(p['start_date']) &&
     optionalTime(p['start_time']) &&
     optionalZone(p['start_time_zone_id']) &&
-    (p['start_time'] === null || p['start_time_zone_id'] !== null),
+    (p['start_time'] === null || p['start_time_zone_id'] !== null) &&
+    blobFields(p),
   person: (p) => optionalText(p['display_name'], LIMITS.displayName),
   milestone: (p) =>
     typeof p['title'] === 'string' &&
@@ -106,7 +115,8 @@ const RULES: Readonly<Partial<Record<SyncedRecordType, (p: Payload) => boolean>>
       p['leap_day_policy'] === 'feb28' ||
       p['leap_day_policy'] === 'mar1') &&
     optionalText(p['note'], LIMITS.milestoneNote) &&
-    (p['is_pinned'] === 0 || p['is_pinned'] === 1),
+    (p['is_pinned'] === 0 || p['is_pinned'] === 1) &&
+    blobFields(p),
 };
 
 /** True when the payload's values are acceptable for its type. Types without rules are refused. */
