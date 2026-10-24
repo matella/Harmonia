@@ -5,6 +5,7 @@ import type { TrashItem } from '../../core/domain/models';
 import { trashDaysLeft } from '../../core/domain/trash';
 import { I18nService } from '../../core/services/i18n.service';
 import { NoticeService } from '../../core/services/notice.service';
+import { SharingService } from '../../core/services/sharing.service';
 import { CLOCK } from '../../core/services/tokens';
 import { TrashService } from '../../core/services/trash.service';
 import { I18N_PIPES } from '../../shared/pipes/i18n.pipes';
@@ -130,6 +131,7 @@ export class TrashPage {
   private readonly clock = inject(CLOCK);
   private readonly confirm = inject(ConfirmService);
   private readonly notice = inject(NoticeService);
+  private readonly sharing = inject(SharingService);
   protected readonly busy = signal(false);
 
   ionViewWillEnter(): void {
@@ -150,9 +152,15 @@ export class TrashPage {
   }
 
   protected async deleteForever(item: TrashItem): Promise<void> {
+    // While sharing, a purge removes it from every device and the server too (§18).
+    const view =
+      this.sharing.status() === 'unknown'
+        ? await this.sharing.refresh().catch(() => 'unknown' as const)
+        : this.sharing.status();
+    const shared = view !== 'off' && view !== 'unknown';
     const ok = await this.confirm.confirmDestructive(
       this.t.t('trash.deleteForeverTitle'),
-      this.t.t('trash.deleteForeverBody'),
+      this.t.t(shared ? 'trash.deleteForeverBodyShared' : 'trash.deleteForeverBody'),
       this.t.t('trash.deleteForever'),
     );
     if (ok) await this.run(() => this.trash.deleteForever(item), 'trash.deletedForever');

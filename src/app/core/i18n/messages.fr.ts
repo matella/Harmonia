@@ -345,6 +345,7 @@ export const FR: EnCatalog = {
   'trash.deleteForeverLabel': 'Supprimer définitivement {title}',
   'trash.deleteForeverTitle': 'Supprimer définitivement\u00a0?',
   'trash.deleteForeverBody': 'Cela l’efface de cet appareil, avec ses photos. Cette action est irréversible.',
+  'trash.deleteForeverBodyShared': 'Cela l’efface de vos appareils et de ceux de votre partenaire, avec ses photos. Cette action est irréversible.',
   'trash.restored': 'Restauré',
   'trash.deletedForever': 'Supprimé définitivement',
   'trash.failed': 'Cette action n’a pas pu aboutir. Réessayez.',

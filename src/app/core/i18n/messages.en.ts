@@ -342,6 +342,7 @@ export const EN = {
   'trash.deleteForeverLabel': 'Delete {title} forever',
   'trash.deleteForeverTitle': 'Delete forever?',
   'trash.deleteForeverBody': 'This removes it and its photos from this device. This can’t be undone.',
+  'trash.deleteForeverBodyShared': 'This removes it and its photos from your devices and your partner’s. This can’t be undone.',
   'trash.restored': 'Restored',
   'trash.deletedForever': 'Deleted forever',
   'trash.failed': 'This couldn’t be done. Try again.',

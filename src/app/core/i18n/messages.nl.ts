@@ -344,6 +344,7 @@ export const NL: EnCatalog = {
   'trash.deleteForeverLabel': '{title} definitief verwijderen',
   'trash.deleteForeverTitle': 'Definitief verwijderen?',
   'trash.deleteForeverBody': 'Dit verwijdert het met de foto’s van dit toestel. Dit kan niet ongedaan worden gemaakt.',
+  'trash.deleteForeverBodyShared': 'Dit verwijdert het met de foto’s van jouw toestellen en die van je partner. Dit kan niet ongedaan worden gemaakt.',
   'trash.restored': 'Teruggezet',
   'trash.deletedForever': 'Definitief verwijderd',
   'trash.failed': 'Dat is niet gelukt. Probeer het opnieuw.',

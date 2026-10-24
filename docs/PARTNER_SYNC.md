@@ -948,3 +948,15 @@ Phase 6's server-side part, done before real users (`20261024000200_limits.sql`,
 - **Android:** `@capacitor/barcode-scanner` with the **ZXing** engine. ML Kit is excluded from the build (`configurations.all { exclude group: 'com.google.mlkit' }` in `android/app/build.gradle`): its terms let it send usage metrics to Google, and Harmonia makes no such calls. The debug APK was checked: no ML Kit classes or init provider (the release build is checked in release prep). The plugin needs **minSdk 26** (Android 8.0), raised from 24.
 - **iOS:** the plugin uses AVFoundation; the camera usage text now mentions scanning invites (EN/FR/NL).
 - **Verified:** page spec with a fake scanner (fills the code, refuses a non-invite, ignores a cancel). On the API 37.2 emulator: the shown QR code, screenshotted and decoded with zxing-cpp, equals the invite code exactly; the ZXing scanner opened on the camera and Back returned to the app with a cancel, no crash. Not verified: a scan of a real code by a real camera, iOS.
+
+## 21. Two phones (2026-10-24)
+
+First run between **two Android emulators** (API 37.2, both on the local stack through `adb reverse tcp:54321 tcp:54321`, one per emulator; development build `bun run android:build:dev`, since the production bundle leaves the local server out):
+
+- **Invite and join:** phone A creates the invite and its recovery key; phone B, with its own data and a different start date, joins with the code; both show the same safety code (329 548); A accepts; B is asked which start date to keep, keeps A's, then sets up its own recovery key. Both show *Together since June 14, 2024*.
+- **Dates:** a date added on B appears on A after a sync. An edit made on A while the server was unreachable shows *Harmonia couldn't reach the sharing server*, stays on A, and reaches B once A is back online. The same date edited on both phones before either syncs ends with the later edit on both.
+- **Photos:** a memory with a 3000 × 2000 photo, picked through Android's photo picker on A, arrives on B with its thumbnail and the 2048 × 1365 photo; A shows 0.1 MB used.
+- **Delete forever:** deleting that memory and then *Delete forever* on B removes it from A (not in Memories or Recently deleted), the space's use goes back to 0 MB and its photo is gone from Storage.
+- **Operator script:** an 18-byte part left by an earlier live test in a space that no longer exists was removed by `scripts/cleanup-photo-storage.mjs`.
+- **Fixed:** the *Delete forever* dialog said "from this device" while sharing, though it removes the item from both people's devices and the server. While sharing it now says so (EN/FR/NL; page spec).
+- **Not covered here:** airplane mode on the emulator doesn't cut `adb reverse` (it's a loopback connection), so being offline was simulated by removing the route and restarting the app. Two real phones on a real network, iOS, and scanning one phone's QR code with the other's camera are still to do.
