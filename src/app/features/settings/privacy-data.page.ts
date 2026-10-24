@@ -1,7 +1,9 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { NavController } from '@ionic/angular';
 import { IonContent, IonIcon, IonSpinner, IonToggle } from '@ionic/angular';
 
+import { APP_LOCK_DELAYS, type AppLockDelay } from '../../core/domain/app-lock';
+import { AppLockService } from '../../core/services/app-lock.service';
 import { DataDeletionService } from '../../core/services/data-deletion.service';
 import { DataExportService } from '../../core/services/data-export.service';
 import { UsageService } from '../../core/services/usage.service';
@@ -11,11 +13,20 @@ import { SettingsService } from '../../core/services/settings.service';
 import { AppStore } from '../../core/state/app-store';
 import { I18N_PIPES } from '../../shared/pipes/i18n.pipes';
 import { ConfirmService } from '../../shared/services/confirm.service';
+import { ChoiceListComponent, type Choice } from './choice-list.component';
 import { SettingsHeaderComponent } from './settings-header.component';
 
 @Component({
   selector: 'hm-privacy-data',
-  imports: [IonContent, IonIcon, IonSpinner, IonToggle, SettingsHeaderComponent, ...I18N_PIPES],
+  imports: [
+    IonContent,
+    IonIcon,
+    IonSpinner,
+    IonToggle,
+    ChoiceListComponent,
+    SettingsHeaderComponent,
+    ...I18N_PIPES,
+  ],
   template: `
     <hm-settings-header [title]="'privacy.title' | t" />
     <ion-content>
@@ -24,6 +35,34 @@ import { SettingsHeaderComponent } from './settings-header.component';
           <ion-icon name="lock-closed-outline" aria-hidden="true" />
           <span>{{ (usage.available ? 'privacy.statementWithUsage' : 'privacy.statement') | t }}</span>
         </p>
+
+        <section class="hm-section" aria-labelledby="lock-heading">
+          <h2 id="lock-heading" class="hm-section__title">{{ 'lock.section' | t }}</h2>
+          <div class="hm-switch-row">
+            <label class="hm-switch-row__text" for="p-lock">
+              {{ 'lock.toggle' | t }}
+              <span class="hm-switch-row__hint">{{
+                (lockAvailable() || store.settings().appLock ? 'lock.toggleHint' : 'lock.needsScreenLock') | t
+              }}</span>
+            </label>
+            <ion-toggle
+              id="p-lock"
+              [checked]="store.settings().appLock"
+              [disabled]="lockBusy() || (!lockAvailable() && !store.settings().appLock)"
+              (ionChange)="setLock($event.detail.checked, $event.target)"
+            />
+          </div>
+          @if (store.settings().appLock) {
+            <p class="hm-field__label lock-after" aria-hidden="true">{{ 'lock.after' | t }}</p>
+            <hm-choice-list
+              [label]="'lock.after' | t"
+              [choices]="delayChoices()"
+              [value]="'' + store.settings().appLockAfter"
+              (changed)="setDelay($event)"
+            />
+            <p class="hm-section__hint">{{ 'lock.widgetsHint' | t }}</p>
+          }
+        </section>
 
         @if (usage.available) {
           <section class="hm-section" aria-labelledby="usage-heading">
@@ -81,6 +120,9 @@ import { SettingsHeaderComponent } from './settings-header.component';
     .action {
       margin: var(--hm-space-4) 0 var(--hm-space-2);
     }
+    .lock-after {
+      margin: var(--hm-space-4) 0 var(--hm-space-2);
+    }
     .danger-zone {
       padding-top: var(--hm-space-6);
       border-top: var(--hm-hairline);
@@ -97,7 +139,53 @@ export class PrivacyDataPage {
   private readonly nav = inject(NavController);
   protected readonly usage = inject(UsageService);
   private readonly settings = inject(SettingsService);
-  private readonly store = inject(AppStore);
+  protected readonly store = inject(AppStore);
+  private readonly lock = inject(AppLockService);
+
+  /** Whether the phone has a screen lock to unlock with. */
+  protected readonly lockAvailable = signal(false);
+  protected readonly lockBusy = signal(false);
+  protected readonly delayChoices = computed<Choice<string>[]>(() =>
+    APP_LOCK_DELAYS.map((minutes) => ({
+      value: String(minutes),
+      label:
+        minutes === 0 ? this.t.t('lock.immediately') : this.t.plural('lock.afterMinutes', minutes),
+    })),
+  );
+
+  constructor() {
+    void this.lock.deviceIsSecure().then((secure) => this.lockAvailable.set(secure));
+  }
+
+  /** On: unlock once first (nobody locks themselves out by mistake). Off: at once. */
+  protected async setLock(enabled: boolean, toggle: EventTarget | null): Promise<void> {
+    if (enabled === this.store.settings().appLock) return;
+    this.lockBusy.set(true);
+    try {
+      if (!enabled) {
+        await this.lock.disable();
+        return;
+      }
+      const result = await this.lock.enable();
+      if (result !== 'unlocked') {
+        if (toggle) (toggle as HTMLIonToggleElement).checked = false;
+        if (result === 'failed') await this.notice.show(this.t.t('lock.enableFailed'), 'warning');
+      }
+    } catch {
+      if (toggle) (toggle as HTMLIonToggleElement).checked = this.store.settings().appLock;
+      await this.notice.show(this.t.t('settings.saveFailed'), 'warning');
+    } finally {
+      this.lockBusy.set(false);
+    }
+  }
+
+  protected async setDelay(value: string): Promise<void> {
+    try {
+      await this.lock.setDelay(Number(value) as AppLockDelay);
+    } catch {
+      await this.notice.show(this.t.t('settings.saveFailed'), 'warning');
+    }
+  }
 
   protected readonly exporting = signal(false);
   protected readonly busy = signal(false);

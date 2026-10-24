@@ -5,6 +5,7 @@ import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
 import { applyPreferredTextScale } from '../platform/text-scale';
+import { AppLockService } from './app-lock.service';
 import { AppStore } from '../state/app-store';
 import { routeForLink } from './deep-links';
 import { SharingService } from './sharing.service';
@@ -27,6 +28,7 @@ export class LifecycleService {
   private readonly widgets = inject(WidgetService);
   private readonly usage = inject(UsageService);
   private readonly sharing = inject(SharingService);
+  private readonly lock = inject(AppLockService);
   private readonly router = inject(Router);
   private readonly zone = inject(NgZone);
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -64,6 +66,7 @@ export class LifecycleService {
   }
 
   private async onResume(): Promise<void> {
+    this.lock.onResume();
     void applyPreferredTextScale();
     this.store.tick();
     this.scheduleTick();
@@ -76,6 +79,7 @@ export class LifecycleService {
   }
 
   private onPause(): void {
+    this.lock.onPause();
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     // Send queued usage events (if the user opted in) before the OS may suspend us.

@@ -70,6 +70,29 @@
           }
         }
       }
+    },
+    "NSFaceIDUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harmonia uses Face ID only to unlock the app, when you turn on App lock."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harmonia n’utilise Face ID que pour déverrouiller l’app, quand vous activez le verrouillage."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harmonia gebruikt Face ID alleen om de app te ontgrendelen, als je de app-vergrendeling aanzet."
+          }
+        }
+      }
     }
   }
 }

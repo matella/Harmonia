@@ -1,3 +1,4 @@
+import { APP_LOCK_DELAYS } from '../domain/app-lock';
 import type { Clock } from '../domain/clock';
 import { isValidLocalTime } from '../domain/local-date';
 import { DEFAULT_SETTINGS, type AppSettings } from '../domain/models';
@@ -31,6 +32,9 @@ const VALIDATORS: Validators = {
   language: oneOf('system', 'en', 'fr', 'nl'),
   usageSharing: isBoolean,
   usagePromptAnswered: isBoolean,
+  appLock: isBoolean,
+  appLockAfter: (value): value is AppSettings['appLockAfter'] =>
+    typeof value === 'number' && (APP_LOCK_DELAYS as readonly number[]).includes(value),
 };
 
 /**

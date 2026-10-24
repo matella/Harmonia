@@ -77,6 +77,8 @@
 	<string>Harmonia shows only the photos you choose for your profile, dates and memories. They stay on this device.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Harmonia never saves to your photo library without your action.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Harmonia uses Face ID only to unlock the app, when you turn on App lock.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Harmonia only opens the camera if you choose to take a photo for a memory.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>

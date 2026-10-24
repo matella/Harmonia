@@ -1,4 +1,5 @@
 import type { IsoDate, LocalTime } from './local-date';
+import type { AppLockDelay } from './app-lock';
 
 /** ISO-8601 instant string (UTC), used only for record bookkeeping. */
 export type IsoInstant = string;
@@ -148,6 +149,10 @@ export interface AppSettings {
   usageSharing: boolean;
   /** The one-time invitation to share usage was answered (either way). */
   usagePromptAnswered: boolean;
+  /** App lock with the phone's own unlock (docs/APP_LOCK.md); off by default. */
+  appLock: boolean;
+  /** Minutes in the background before the app locks again (0 = right away). */
+  appLockAfter: AppLockDelay;
 }
 
 export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
@@ -168,6 +173,8 @@ export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   language: 'system',
   usageSharing: false,
   usagePromptAnswered: false,
+  appLock: false,
+  appLockAfter: 1,
 });
 
 /** Offsets offered as one-tap choices; any whole number 0–365 is accepted. */

@@ -252,6 +252,15 @@ describe('SettingsRepository', () => {
     const { settings } = await openDb();
     await expect(settings.save({ defaultReminderTime: '25:00' })).rejects.toThrow();
   });
+
+  it('keeps the app lock off by default and its delay to the offered choices', async () => {
+    const { settings, driver } = await openDb();
+    expect(await settings.load()).toMatchObject({ appLock: false, appLockAfter: 1 });
+    expect(await settings.save({ appLock: true, appLockAfter: 15 })).toMatchObject({ appLock: true, appLockAfter: 15 });
+    await driver.run("UPDATE app_settings SET value = '7' WHERE key = 'appLockAfter'");
+    expect((await settings.load()).appLockAfter).toBe(1);
+    await expect(settings.save({ appLockAfter: 7 as never })).rejects.toThrow();
+  });
 });
 
 describe('cold start and deletion', () => {

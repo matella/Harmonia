@@ -142,7 +142,7 @@ From any device in the space:
 2. A new epoch `K[n+1]` is sealed to the remaining devices on the verified device list and to every recovery envelope (§7.4).
 3. Future writes use the new epoch.
 
-**The removed device keeps what it already downloaded.** This is unavoidable, and it's why an app lock (PIN or biometrics) is planned.
+**The removed device keeps what it already downloaded.** This is unavoidable, and it's why the app lock exists (`docs/APP_LOCK.md`, phone unlock).
 
 ### 6.5 Leave or dissolve (breakup)
 Either person can choose **Leave the space**. The space is **dissolved** for both people:
@@ -284,7 +284,7 @@ The privacy policy must describe the right-hand column. It is not accurate to sa
 ## 11. Threat model (summary)
 - **Server breach or an honest-but-curious operator:** gets only metadata and ciphertext. ✔
 - **Intercepted invite link:** single-use, 24-hour expiry, requires the inviter's approval and the safety code. ✔
-- **Lost or stolen phone:** remove it from another device, which also changes the key. Data already on it stays readable without an app lock, so the PIN or biometric lock is planned.
+- **Lost or stolen phone:** remove it from another device, which also changes the key. Data already on it is behind the app lock if it was on (`docs/APP_LOCK.md`), and the phone's own screen lock.
 - **Malicious member:** they can read and edit everything by design. Recently deleted limits the damage from destructive edits.
 - **Compromised device (malware):** out of scope, since keys live in the app's memory while it runs.
 - **Recovery key leaked:** anyone who has it can recover a device into the space until it is replaced (§8). Replace it, which also starts a new epoch. After a lost or stolen device is removed, the app suggests replacing it.
@@ -320,7 +320,7 @@ The privacy policy must describe the right-hand column. It is not accurate to sa
 The product questions (joining with existing data, edit rights and trash, partner reminders) were decided on 2026-10-21; see the list at the top. Still open:
 1. **Server:** Supabase EU (recommended to start) or self-hosted.
 2. **Domain** for invite links, the privacy policy and support. It blocks links, but not QR invites.
-3. **App lock** (PIN or biometrics): recommended in the same release as sharing.
+3. ~~App lock~~: decided 2026-10-24, phone unlock (`docs/APP_LOCK.md`).
 
 ## 15. Phase 0 spike results (2026-10-21)
 

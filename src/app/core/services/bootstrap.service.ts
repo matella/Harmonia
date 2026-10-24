@@ -5,6 +5,7 @@ import { DatabaseTooNewError, MigrationError } from '../persistence/migrations';
 import { AppStore } from '../state/app-store';
 import { DatabaseService } from './database.service';
 import { I18nService } from './i18n.service';
+import { AppLockService } from './app-lock.service';
 import { LifecycleService } from './lifecycle.service';
 import { thumbnailSiblings } from './profile.service';
 import { SharingService } from './sharing.service';
@@ -24,6 +25,7 @@ export class BootstrapService {
   private readonly store = inject(AppStore);
   private readonly sync = inject(SyncService);
   private readonly lifecycle = inject(LifecycleService);
+  private readonly lock = inject(AppLockService);
   private readonly media = inject(MediaStorageService);
   private readonly i18n = inject(I18nService);
   private readonly usage = inject(UsageService);
@@ -40,6 +42,8 @@ export class BootstrapService {
       await this.sync.reload();
       // Before the UI renders; changing the language later reloads the app.
       this.i18n.apply(this.store.settings().language);
+      // Locked before anything is shown (docs/APP_LOCK.md).
+      this.lock.init();
     } catch (error) {
       this.store.failure.set(
         error instanceof MigrationError
