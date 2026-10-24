@@ -16,6 +16,7 @@ import { MemorySecureKeyStore } from '../../src/app/core/platform/secure-key-sto
 import { DeviceSession, type AuthStorage } from '../../src/app/core/sync/device-session';
 import { fromBase64, toBase64, toBytea } from '../../src/app/core/sync/encoding';
 import { Sharing, SharingEndedError } from '../../src/app/core/sync/sharing';
+import type { PhotoFiles } from '../../src/app/core/sync/photo-sync';
 import { SpaceApi } from '../../src/app/core/sync/space-api';
 import { envelopeMessage, MissingSpaceKeyError } from '../../src/app/core/sync/space-keys';
 import { loadSyncCrypto, type SyncCrypto } from '../../src/app/core/sync/sync-crypto-port';
@@ -71,7 +72,11 @@ const date = (title: string): ValidMilestone => ({
   reminders: [],
 });
 
-async function phone(zone = 'Europe/Brussels', secrets = new MemorySecureKeyStore()) {
+async function phone(
+  zone = 'Europe/Brussels',
+  secrets = new MemorySecureKeyStore(),
+  photoFiles?: PhotoFiles,
+) {
   const driver = await SqlJsDriver.open();
   await migrate(driver);
   const clock = new MutableClock(new Date().toISOString(), zone);
@@ -98,6 +103,7 @@ async function phone(zone = 'Europe/Brussels', secrets = new MemorySecureKeyStor
     crypto,
     secrets,
     defaults: () => ({ calendarTimeZoneId: zone }),
+    photoFiles,
   });
   dissolve.push(async () => {
     if (await store.state()) await (await session.connect()).client.rpc('dissolve_space');
@@ -828,6 +834,58 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
       psql(`select record_type, count(*) from records where space_id = '${spaceId}'
         and record_type like 'memory%' group by 1 order by 1`),
     ).toBe('memory|2');
+  });
+
+  it('shares a photo encrypted through Storage, and the other phone keeps the same bytes', async () => {
+    const files = () => {
+      const local = new Map<string, Uint8Array>();
+      const saved = new Map<string, Uint8Array>();
+      const api: PhotoFiles = {
+        read: async (path) => local.get(path) ?? null,
+        saveDownloaded: async (bytes) => {
+          const path = `media/${globalThis.crypto.randomUUID()}.jpg`;
+          saved.set(path, bytes);
+          return { filePath: path, thumbnailPath: null };
+        },
+      };
+      return { local, saved, api };
+    };
+    const alexFiles = files();
+    const samFiles = files();
+    const alex = await phone('Europe/Brussels', new MemorySecureKeyStore(), alexFiles.api);
+    const sam = await phone('Europe/Brussels', new MemorySecureKeyStore(), samFiles.api);
+    for (const p of [alex, sam]) await p.profiles.save(profile({}));
+    await alex.sharing.startSharing('Alex');
+    const code = await alex.sharing.createInvite();
+    await sam.sharing.claim(code, 'Sam');
+    await alex.sharing.approveInvite();
+    let progress = await sam.sharing.checkJoin();
+    if (progress.state === 'chooseStart') progress = await sam.sharing.chooseStart('space');
+    expect(progress.state).toBe('joined');
+
+    const original = new Uint8Array(1536 * 1024).map((_, i) => (i * 7) & 0xff); // two parts
+    alexFiles.local.set('media/a.jpg', original);
+    const made = await alex.memories.create(
+      { title: 'Ghent', body: null, memoryDate: '2025-03-02', milestoneId: null },
+      [{ filePath: 'media/a.jpg', thumbnailPath: null }],
+    );
+    const sent = await alex.sharing.sync();
+    expect(sent.photos).toMatchObject({ uploaded: 1, waiting: 0, storageFull: false });
+    const spaceId = (await alex.store.state())!.spaceId;
+    expect(
+      psql(
+        `select count(*) from storage.objects where bucket_id = 'photos' and name like '${spaceId}/%'`,
+      ),
+    ).toBe('2');
+    expect(await alex.sharing.photoStorage()).toEqual({ used: original.length, limit: 2147483648 });
+
+    const got = await sam.sharing.sync();
+    expect(got.photos?.downloaded).toBe(1);
+    const media = (await sam.memories.get(made.id))?.media ?? [];
+    expect(media).toHaveLength(1);
+    expect(Buffer.from(samFiles.saved.get(media[0].filePath)!).equals(Buffer.from(original))).toBe(
+      true,
+    );
   });
 
   it('cleans up', async () => {

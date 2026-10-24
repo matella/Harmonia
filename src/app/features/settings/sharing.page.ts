@@ -557,6 +557,9 @@ const POLL_MS = 3000;
                 </button>
               </div>
               <p class="hm-section__hint" role="status">{{ syncStatus() }}</p>
+              @if (photoUsage(); as usage) {
+                <p class="hm-section__hint">{{ usage }}</p>
+              }
             </section>
             @if (myDevices().length > 0) {
               <section class="hm-section" aria-labelledby="devices-heading">
@@ -824,6 +827,8 @@ export class SharingPage implements OnInit, OnDestroy {
   protected readonly recoveryStatus = signal<RecoveryStatus | null>(null);
   /** Sharing is on but no partner has joined yet: a new invite can be made. */
   protected readonly canInvite = signal(false);
+  /** "Shared photos use 12 MB of 2 GB." */
+  protected readonly photoUsage = signal<string | null>(null);
   /** After removing a device: replacing the recovery key is suggested (§8). */
   protected readonly suggestReplace = signal(false);
   protected readonly recoverText = signal('');
@@ -1059,14 +1064,17 @@ export class SharingPage implements OnInit, OnDestroy {
         return;
       }
       this.loadMemberDetails();
+      const photos = report.photos;
       this.syncStatus.set(
-        this.t.t(
-          report.awaitingKey
-            ? 'sharing.syncAwaitingKey'
-            : report.deferred
-              ? 'sharing.syncDeferred'
-              : 'sharing.synced',
-        ),
+        report.awaitingKey
+          ? this.t.t('sharing.syncAwaitingKey')
+          : report.deferred
+            ? this.t.t('sharing.syncDeferred')
+            : photos?.storageFull
+              ? this.t.t('sharing.photosFull')
+              : photos && photos.waiting > 0
+                ? this.t.plural('sharing.photosWaiting', photos.waiting)
+                : this.t.t('sharing.synced'),
       );
     });
   }
@@ -1115,6 +1123,25 @@ export class SharingPage implements OnInit, OnDestroy {
       .hasPartner()
       .then((partner) => this.canInvite.set(!partner))
       .catch(() => this.canInvite.set(false));
+    void this.sharing
+      .photoStorage()
+      .then(({ used, limit }) =>
+        this.photoUsage.set(
+          this.t.t('sharing.photosUsage', { used: this.size(used), limit: this.size(limit) }),
+        ),
+      )
+      .catch(() => this.photoUsage.set(null));
+  }
+
+  /** A byte count for people: megabytes, or gigabytes from 1 GB. */
+  private size(bytes: number): string {
+    const gb = 1024 * 1024 * 1024;
+    const large = bytes >= gb;
+    return new Intl.NumberFormat(this.t.locale, {
+      style: 'unit',
+      unit: large ? 'gigabyte' : 'megabyte',
+      maximumFractionDigits: 1,
+    }).format(bytes / (large ? gb : 1024 * 1024));
   }
 
   protected async leave(): Promise<void> {

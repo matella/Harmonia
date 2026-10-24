@@ -385,6 +385,76 @@ export class SyncStore {
     });
   }
 
+  // -------------------------------------------------------------------------------
+  // Photos (PARTNER_SYNC §18). Local columns only: no new version, nothing queued.
+
+  /** This device's photos not on the server yet (trashed memories included: they can come back). */
+  async photosToUpload(): Promise<{ id: string; filePath: string; blobId: string | null }[]> {
+    const rows = await this.db.query<{ id: string; file_path: string; blob_id: string | null }>(
+      `SELECT id, file_path, blob_id FROM memory_media
+       WHERE blob_state = 'local' AND deleted_at IS NULL AND file_path IS NOT NULL
+       ORDER BY created_at, id`,
+    );
+    return rows.map((r) => ({ id: r.id, filePath: r.file_path, blobId: r.blob_id }));
+  }
+
+  /** The photo's blob, recorded before it is uploaded so a retry reuses its reservation. */
+  async setPhotoBlob(
+    id: string,
+    blob: { blobId: string; key: string; header: string; size: number },
+  ): Promise<void> {
+    await this.db.run(
+      `UPDATE memory_media SET blob_id = ?, blob_key = ?, blob_header = ?, blob_size = ?
+       WHERE id = ? AND blob_state = 'local'`,
+      [blob.blobId, blob.key, blob.header, blob.size, id],
+    );
+  }
+
+  /** Its file is on the server: the photo's record may go up now. */
+  async markPhotoUploaded(id: string): Promise<void> {
+    await this.db.run(
+      `UPDATE memory_media SET blob_state = 'uploaded' WHERE id = ? AND blob_state = 'local'`,
+      [id],
+    );
+  }
+
+  /** Photos from the space whose file isn't on this device yet. */
+  async photosToDownload(): Promise<
+    { id: string; blobId: string; key: string; header: string; size: number }[]
+  > {
+    const rows = await this.db.query<{
+      id: string;
+      blob_id: string;
+      blob_key: string;
+      blob_header: string;
+      blob_size: number;
+    }>(
+      `SELECT id, blob_id, blob_key, blob_header, blob_size FROM memory_media
+       WHERE blob_state = 'remote' AND deleted_at IS NULL AND blob_id IS NOT NULL
+         AND blob_key IS NOT NULL AND blob_header IS NOT NULL AND blob_size IS NOT NULL
+       ORDER BY created_at, id`,
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      blobId: r.blob_id,
+      key: r.blob_key,
+      header: r.blob_header,
+      size: r.blob_size,
+    }));
+  }
+
+  async setPhotoDownloaded(
+    id: string,
+    filePath: string,
+    thumbnailPath: string | null,
+  ): Promise<void> {
+    await this.db.run(
+      `UPDATE memory_media SET file_path = ?, thumbnail_path = ?, blob_state = 'uploaded'
+       WHERE id = ? AND blob_state = 'remote'`,
+      [filePath, thumbnailPath, id],
+    );
+  }
+
   /** Every person's recovery public key (base64), by person. */
   async recoveryKeys(): Promise<Map<string, string>> {
     const rows = await this.db.query<{ id: string; public_key: string }>(

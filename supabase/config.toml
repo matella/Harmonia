@@ -125,9 +125,11 @@ file_size_limit = "50MiB"
 # allowed_mime_types = ["image/png", "image/jpeg"]
 # objects_path = "./images"
 
-# Allow connections via S3 compatible clients
+# Allow connections via S3 compatible clients. Off: Harmonia doesn't use it, and the photo
+# rules (docs/PARTNER_SYNC.md §18) are checked only for the standard and resumable uploads.
+# Turn it off on the hosted project too (Storage settings).
 [storage.s3_protocol]
-enabled = true
+enabled = false
 
 # Image transformation API is available to Supabase Pro plan.
 # [storage.image_transformation]

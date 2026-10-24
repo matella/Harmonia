@@ -813,3 +813,54 @@ Built as revised in §8 (key pair, separate `recovery` record, hashed lookups, s
 
 **Not verified:** receiving memories on a device (covered by sql.js and live tests); photos (slice 2).
 
+### Slice 2: encrypted photos
+
+**What local Supabase Storage enforces** (probed first, live, as a hostile member calling Storage directly with their own session: `supabase/tests/photos-live.test.ts`):
+- The **bucket's per-object limit** is enforced by Storage itself ("The object exceeded the maximum allowed size").
+- Storage first checks the insert policy with a row it rolls back, which has **no size yet**, then uploads, then inserts the row with the file's size (seen with a temporary trigger). So a policy can't check sizes, but a trigger on that final row can, and a refused part leaves no file behind (checked on the local file backend).
+- Insert, select and delete policies on `storage.objects` see the path, and can call our own functions.
+- With no update policy, a stored object can't be replaced, with or without upsert.
+- **Resumable (TUS) uploads** follow the same rules (probed with a member's session).
+- `storage.objects`, the reservations and the settings aren't reachable through the data API, and a member can't change the bucket.
+- The **S3-compatible protocol** wasn't probed, and Harmonia doesn't use it: it is off in `supabase/config.toml` and **must be off on the hosted project** too.
+
+**The design that follows** (`20261023000900_photo_blobs.sql`):
+- A private bucket `photos` whose objects may be at most one part: 16 encrypted chunks of 64 KiB (1,048,848 bytes).
+- A photo is stored as parts at `<space>/<blob>/<part>`. Before uploading, a device calls `reserve_blob(blob, size)`, which takes the space's lock, checks the total against the limit and records how many parts the photo may have. The same photo and size again changes nothing.
+- The insert policy accepts a part only from the device that reserved the photo, in its own space, with a part number within its size. A trigger then requires **exactly** the encrypted size that part has (each 64 KiB chunk adds 17 bytes). So a member can store exactly what was reserved, whatever their app does.
+- *Found in review, fixed before commit:* a first version checked only part numbers, so a 1-byte reservation could store a full 1 MiB part.
+- Members read and delete only their own space's photos (partners are equal).
+- The limit is the one row of `storage_settings` (2 GiB), out of members' reach; `space_storage()` gives the screen the bytes used and the limit.
+
+**On the device** (`photo-sync.ts`, `photo-transport.ts`):
+- A sync uploads this device's photos, then pushes the records, then pulls and downloads. A photo's record goes up only once its file is on the server.
+- **Resuming:** libsodium's chunked encryption picks a fresh random header each time, so a half-uploaded photo can't be re-encrypted to match parts already stored. An interrupted photo starts again: its stale parts are deleted, and its reservation is reused (the blob ID is stored before uploading). An interrupted batch carries on with the remaining photos. A 2048 px photo is usually one or two parts.
+- **Downloading:** every chunk is authenticated, a cut-short or altered photo is refused, and so is anything that isn't a JPEG of at most 4096 px a side, read from its header before the image decoder sees it (`jpeg.ts`: a small file declaring a huge image could otherwise exhaust memory on every sync). Both encoders in use (Android WebView, Chrome) were checked to produce headers it reads. Nothing is kept until all of it checks out, and it is retried on the next sync. The file is kept as sent (already a 2048 px JPEG without metadata), with this device's own thumbnail.
+- **At the limit:** the photos that don't fit stay on this phone and are counted as waiting; everything else keeps syncing. The sharing screen shows "Shared photos use 12.5 MB of 2 GB", says how many photos are waiting, and says when there's no room. A background sync says so once.
+- Photos of a memory from the space appear once downloaded.
+
+**Tests:**
+- PGlite (`photos.test.ts`): parts by reserved size; odd paths, other spaces and strangers refused; the limit; settings out of reach.
+- Live probe (`photos-live.test.ts`, 3): the refusal reasons above, read back as stored, 5 reservations at once can't pass the limit.
+- sql.js (`photo-sync.test.ts`, 4):
+  - a 2.5 MiB photo goes up in three encrypted parts (no plaintext run on the server) and arrives byte for byte;
+  - an interrupted photo starts again while the next one is shared, with one reservation;
+  - at the limit photos wait and go once there's room;
+  - altered or cut-short parts are never kept, and the honest ones then are.
+- Live, through `Sharing` on the local stack: a 1.5 MiB photo goes through Storage as two parts and the partner's phone keeps the same bytes; `photoStorage()` reports the reservation.
+- Page spec: usage line, photos waiting, no room.
+
+**Verified on the Android emulator** (API 37.2, development build against the local stack, the browser preview on a separate origin as Sam's phone; 2026-10-24):
+- Alex turns sharing on and sets up the recovery key; Sam joins (same safety code) and sets up theirs.
+- **Browser to phone:** Sam adds a memory with a photo; the server holds one encrypted part (the 53,928-byte JPEG plus 17 bytes), a memory record and a photo record. The emulator downloads it, checks it, stores it through Android's file storage, makes its own 480 × 360 thumbnail, and shows it in Memories.
+- **Phone to browser:** a photo picked on the emulator through Android's system photo picker goes up (the screen then says "Shared photos use 0.2 MB of 2 GB") and appears on Sam's side with its thumbnail.
+- No console errors other than the expected "not approved yet" answers while Sam waited for approval.
+- Seen there: Storage still holds the photos of spaces deleted by earlier test runs (slice 3, below).
+
+**Phase 5's done-when** ("photos appear on the other device; a resumable upload is verified"): photos appear on the other device, on the emulator. Resuming is verified in sql.js tests (per photo, as above), not on a device.
+
+**Still open (slice 3), before real users:**
+- Deleting a photo for good doesn't free its space on the server yet.
+- **Leaving the space doesn't delete its photos from Storage**: the database rows go, the files stay. The Leave screen says the server copy is deleted, which is true for records but not yet for photos. Once `dissolve_space` has run, nobody is a member any more and no one passes the delete policy, so slice 3 must delete the parts *before* dissolving, and also needs a server-side cleanup (service role) for a crash in between.
+- A received photo that fails its checks is retried on every sync; a cap on attempts would save the downloads.
+

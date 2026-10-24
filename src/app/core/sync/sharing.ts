@@ -21,6 +21,8 @@ import {
   recoveryEnvelopeMessage,
   SpaceKeys,
 } from './space-keys';
+import { PhotoSync, type PhotoFiles, type PhotoReport } from './photo-sync';
+import { SupabasePhotoTransport } from './photo-transport';
 import { SupabaseTransport } from './supabase-transport';
 import type { DevicePublicKeys, RecoveryKeys, SyncCrypto } from './sync-crypto-port';
 import { SyncEngine, type SyncReport } from './sync-engine';
@@ -123,7 +125,12 @@ export interface SharingDeps {
   crypto: SyncCrypto;
   secrets: SecureKeyStore;
   defaults: () => LocalDefaults;
+  /** Local photo files (§18). Without it, photos stay on this device. */
+  photoFiles?: PhotoFiles;
 }
+
+/** A sync, with what happened to photos (null when this device has no photo files). */
+export type SharingSyncReport = SyncReport & { photos: PhotoReport | null };
 
 const NAMES = SHARING_SECRETS;
 
@@ -465,7 +472,7 @@ export class Sharing {
 
   // -------------------------------------------------------------------------------
 
-  async sync(): Promise<SyncReport> {
+  async sync(): Promise<SharingSyncReport> {
     if (!(await this.deps.store.state())) throw new SharingError('notSharing');
     // Until the joiner has answered (start date), nothing of theirs may be uploaded.
     if ((await this.read<PendingJoin>(NAMES.join)) || (await this.read(NAMES.recover))) {
@@ -492,11 +499,38 @@ export class Sharing {
         throw new SharingError('removalPending');
       }
     }
+    // A photo goes up before the record that holds its key (§18).
+    const photos = this.photoSync(device.client);
+    const state = (await this.deps.store.state())!;
+    const up = photos ? await photos.upload(state.spaceId) : null;
     const report = await this.engine(device.client).sync();
     // After the pull, so the device list it seals to is as fresh as this device can know.
     await this.repairEnvelopes(api, device);
     await this.repairRecovery(api, device);
-    return report;
+    if (!photos || !up) return { ...report, photos: null };
+    const downloaded = await photos.download(state.spaceId);
+    const changedTypes =
+      downloaded > 0 && !report.changedTypes.includes('memory_media')
+        ? [...report.changedTypes, 'memory_media' as const]
+        : report.changedTypes;
+    return { ...report, changedTypes, photos: { ...up, downloaded } };
+  }
+
+  /** Bytes of photos reserved in the space, and its limit (§9). */
+  async photoStorage(): Promise<{ used: number; limit: number }> {
+    if (!(await this.deps.store.state())) throw new SharingError('notSharing');
+    const device = await this.deps.session.connect();
+    return new SupabasePhotoTransport(device.client).usage();
+  }
+
+  private photoSync(client: ConstructorParameters<typeof SupabaseTransport>[0]): PhotoSync | null {
+    if (!this.deps.photoFiles) return null;
+    return new PhotoSync(
+      this.deps.store,
+      this.deps.crypto,
+      new SupabasePhotoTransport(client),
+      this.deps.photoFiles,
+    );
   }
 
   /**

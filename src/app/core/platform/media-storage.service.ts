@@ -4,6 +4,8 @@ import { Capacitor } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 
 import { newId } from '../persistence/ids';
+import { toBase64 } from '../sync/encoding';
+import { jpegDimensions, MAX_RECEIVED_PHOTO_EDGE } from '../sync/jpeg';
 import type { StoredMediaFile } from '../persistence/memory.repository';
 
 /** All app-managed media lives under this folder of the private data directory. */
@@ -62,6 +64,32 @@ export class MediaStorageService {
       const full = await encodeJpeg(bitmap, FULL_MAX_EDGE, 0.88);
       const thumb = await encodeJpeg(bitmap, THUMB_MAX_EDGE, 0.8);
       await Filesystem.writeFile({ path: filePath, data: full, directory: Directory.Data, recursive: true });
+      await Filesystem.writeFile({ path: thumbnailPath, data: thumb, directory: Directory.Data, recursive: true });
+      return { filePath, thumbnailPath };
+    } finally {
+      bitmap.close();
+    }
+  }
+
+  /**
+   * A photo received from the shared space (PARTNER_SYNC §18): already a 2048 px JPEG
+   * without metadata, so it is kept as it is, with this device's own thumbnail. Throws
+   * when the bytes aren't an image.
+   */
+  async storeDownloaded(bytes: Uint8Array): Promise<StoredMediaFile> {
+    // Checked before the decoder sees it: a small file declaring a huge image could
+    // otherwise exhaust memory on every sync.
+    const size = jpegDimensions(bytes);
+    if (!size || size.width > MAX_RECEIVED_PHOTO_EDGE || size.height > MAX_RECEIVED_PHOTO_EDGE) {
+      throw new Error('Not a photo this app shares');
+    }
+    const bitmap = await createImageBitmap(new Blob([bytes as BlobPart], { type: 'image/jpeg' }));
+    try {
+      const id = newId();
+      const filePath = `${MEDIA_ROOT}/${id}.jpg`;
+      const thumbnailPath = `${THUMB_DIR}/${id}.jpg`;
+      const thumb = await encodeJpeg(bitmap, THUMB_MAX_EDGE, 0.8);
+      await Filesystem.writeFile({ path: filePath, data: toBase64(bytes), directory: Directory.Data, recursive: true });
       await Filesystem.writeFile({ path: thumbnailPath, data: thumb, directory: Directory.Data, recursive: true });
       return { filePath, thumbnailPath };
     } finally {

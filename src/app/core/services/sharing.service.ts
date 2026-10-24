@@ -14,8 +14,11 @@ import type {
   RecoveryStatus,
   Sharing,
   SharingStatus,
+  SharingSyncReport,
 } from '../sync/sharing';
-import type { SyncReport } from '../sync/sync-engine';
+import { fromBase64 } from '../sync/encoding';
+import type { PhotoFiles } from '../sync/photo-sync';
+import { MediaStorageService } from '../platform/media-storage.service';
 import { SerialQueue } from '../persistence/sql-driver';
 import { AppStore } from '../state/app-store';
 import { DatabaseService } from './database.service';
@@ -60,6 +63,7 @@ export class SharingService {
   private readonly clock = inject(CLOCK);
   private readonly store = inject(AppStore);
   private readonly notice = inject(NoticeService);
+  private readonly media = inject(MediaStorageService);
   private readonly t = inject(I18nService).translator;
   private loading: Promise<Sharing> | null = null;
   /** One store for every sharing secret (in the browser preview it lives in memory only). */
@@ -67,6 +71,7 @@ export class SharingService {
   /** Syncs run one after another, never side by side. */
   private readonly queue = new SerialQueue();
   private autoTimer: ReturnType<typeof setTimeout> | null = null;
+  private photosFullShown = false;
 
   readonly available = this.server !== null;
   readonly status = signal<SharingView>('unknown');
@@ -95,7 +100,11 @@ export class SharingService {
   private async autoSync(): Promise<void> {
     try {
       if (!(await this.db.repos.sync.state())) return;
-      await this.syncNow();
+      const report = await this.syncNow();
+      // Said once when the space becomes full (§9): new photos then stay on this phone.
+      const full = report !== 'ended' && report.photos?.storageFull === true;
+      if (full && !this.photosFullShown) void this.notice.show(this.t.t('sharing.photosFull'));
+      this.photosFullShown = full;
     } catch {
       // Retried on the next start, resume or change.
     }
@@ -171,10 +180,10 @@ export class SharingService {
   }
 
   /** 'ended' when the server said sharing is over; this device has then gone solo. */
-  syncNow(): Promise<SyncReport | 'ended'> {
+  syncNow(): Promise<SharingSyncReport | 'ended'> {
     return this.queue.run(async () => {
       const partner = this.store.profile()?.displayName ?? null;
-      let report: SyncReport;
+      let report: SharingSyncReport;
       try {
         report = await (await this.sharing()).sync();
       } catch (error) {
@@ -240,6 +249,11 @@ export class SharingService {
 
   async hasPartner(): Promise<boolean> {
     return (await this.sharing()).hasPartner();
+  }
+
+  /** Bytes of shared photos in the space, and its limit. */
+  async photoStorage(): Promise<{ used: number; limit: number }> {
+    return (await this.sharing()).photoStorage();
   }
 
   /** Whether my person has a recovery key in this space (§8). */
@@ -325,6 +339,14 @@ export class SharingService {
           },
         }),
       );
+      const media = this.media;
+      const photoFiles: PhotoFiles = {
+        read: async (path) => {
+          const data = await media.readBase64(path);
+          return data ? fromBase64(data) : null;
+        },
+        saveDownloaded: (bytes) => media.storeDownloaded(bytes),
+      };
       return new Sharing({
         store: this.db.repos.sync,
         profiles: this.db.repos.profile,
@@ -332,6 +354,7 @@ export class SharingService {
         crypto,
         secrets,
         defaults: () => ({ calendarTimeZoneId: this.clock.timeZoneId() }),
+        photoFiles,
       });
     })();
     this.loading.catch(() => {

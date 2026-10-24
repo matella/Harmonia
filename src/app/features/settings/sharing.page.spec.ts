@@ -52,8 +52,14 @@ class FakeSharing {
     this.calls.push(`choose:${choice}`);
     return { state: 'joined' };
   }
-  syncResult: 'ended' | { deferred: boolean; awaitingKey?: boolean } = { deferred: false };
-  async syncNow(): Promise<'ended' | { deferred: boolean; awaitingKey?: boolean }> {
+  syncResult:
+    | 'ended'
+    | {
+        deferred: boolean;
+        awaitingKey?: boolean;
+        photos?: { storageFull: boolean; waiting: number } | null;
+      } = { deferred: false };
+  async syncNow(): Promise<typeof this.syncResult> {
     this.calls.push('sync');
     return this.syncResult;
   }
@@ -77,6 +83,10 @@ class FakeSharing {
   partner = true;
   async hasPartner(): Promise<boolean> {
     return this.partner;
+  }
+  storage = { used: 12.5 * 1024 * 1024, limit: 2 * 1024 * 1024 * 1024 };
+  async photoStorage(): Promise<{ used: number; limit: number }> {
+    return this.storage;
   }
   recovery: 'set' | 'missing' | 'saving' = 'set';
   async recoveryStatus(): Promise<'set' | 'missing' | 'saving'> {
@@ -281,6 +291,20 @@ describe('SharingPage', () => {
       'Join with a code',
       'Recover with your recovery key',
     ]);
+    fixture.destroy();
+  });
+
+  it('shows the shared photo space, and says when photos wait or there is no room', async () => {
+    fake.view = 'member';
+    const { fixture, el } = await render();
+    await settle(fixture);
+    expect(el.textContent).toContain('Shared photos use 12.5 MB of 2 GB.');
+    fake.syncResult = { deferred: false, photos: { storageFull: false, waiting: 2 } };
+    await click(fixture, 'Sync now');
+    expect(el.textContent).toContain('2 photos will be shared at the next sync.');
+    fake.syncResult = { deferred: false, photos: { storageFull: true, waiting: 1 } };
+    await click(fixture, 'Sync now');
+    expect(el.textContent).toContain('no room for more photos');
     fixture.destroy();
   });
 
