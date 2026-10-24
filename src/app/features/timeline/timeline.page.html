@@ -1,6 +1,6 @@
 <ion-header class="ion-no-border">
   <ion-toolbar>
-    <ion-title>{{ 'timeline.title' | t }}</ion-title>
+    <ion-title role="heading" aria-level="1">{{ 'timeline.title' | t }}</ion-title>
     @if (!isEmpty()) {
       <ion-buttons slot="end">
         <ion-button (click)="toggleOrder()" [attr.aria-label]="'timeline.order' | t">

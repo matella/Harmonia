@@ -47,7 +47,7 @@ import { SettingsHeaderComponent } from './settings-header.component';
               }}</span>
             </label>
             <ion-toggle
-              id="p-lock"
+              id="p-lock" [attr.aria-label]="'lock.toggle' | t"
               [checked]="store.settings().appLock"
               [disabled]="lockBusy() || (!lockAvailable() && !store.settings().appLock)"
               (ionChange)="setLock($event.detail.checked, $event.target)"
@@ -73,7 +73,7 @@ import { SettingsHeaderComponent } from './settings-header.component';
                 {{ 'usage.toggle' | t }}
                 <span class="hm-switch-row__hint">{{ 'usage.toggleHint' | t: { destination: usage.destination } }}</span>
               </label>
-              <ion-toggle id="p-usage" [checked]="usage.enabled()" (ionChange)="setUsage($event.detail.checked)" />
+              <ion-toggle id="p-usage" [attr.aria-label]="'usage.toggle' | t" [checked]="usage.enabled()" (ionChange)="setUsage($event.detail.checked)" />
             </div>
           </section>
         }

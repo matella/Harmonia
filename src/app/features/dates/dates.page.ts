@@ -51,7 +51,7 @@ interface UpcomingItem {
   template: `
     <ion-header class="ion-no-border">
       <ion-toolbar>
-        <ion-title>{{ 'dates.title' | t }}</ion-title>
+        <ion-title role="heading" aria-level="1">{{ 'dates.title' | t }}</ion-title>
         <ion-buttons slot="end">
           <ion-button (click)="add()" [attr.aria-label]="'dates.add' | t">
             <ion-icon slot="icon-only" name="add" aria-hidden="true" />

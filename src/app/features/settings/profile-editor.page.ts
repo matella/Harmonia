@@ -111,7 +111,7 @@ import { SettingsHeaderComponent } from './settings-header.component';
               {{ 'onboarding.addTime' | t }}
               <span class="hm-switch-row__hint">{{ 'onboarding.addTimeHint' | t }}</span>
             </label>
-            <ion-toggle id="p-time" [checked]="withTime()" (ionChange)="withTime.set($event.detail.checked)" />
+            <ion-toggle id="p-time" [attr.aria-label]="'onboarding.addTime' | t" [checked]="withTime()" (ionChange)="withTime.set($event.detail.checked)" />
           </div>
           @if (withTime()) {
             <hm-date-field mode="time" [label]="'onboarding.startTimeLabel' | t" [(value)]="startTime" [error]="errors().startTime" />

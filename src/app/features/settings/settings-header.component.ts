@@ -9,7 +9,7 @@ import { IonBackButton, IonButtons, IonHeader, IonTitle, IonToolbar } from '@ion
     <ion-header class="ion-no-border">
       <ion-toolbar>
         <ion-buttons slot="start"><ion-back-button defaultHref="/settings" [text]="''" /></ion-buttons>
-        <ion-title>{{ title() }}</ion-title>
+        <ion-title role="heading" aria-level="1">{{ title() }}</ion-title>
         <ng-content />
       </ion-toolbar>
     </ion-header>

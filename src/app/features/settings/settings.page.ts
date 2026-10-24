@@ -37,7 +37,7 @@ const LINKS: SettingsLink[] = [
     <ion-header class="ion-no-border">
       <ion-toolbar>
         <ion-buttons slot="start"><ion-back-button defaultHref="/tabs/home" [text]="''" /></ion-buttons>
-        <ion-title>{{ 'settings.title' | t }}</ion-title>
+        <ion-title role="heading" aria-level="1">{{ 'settings.title' | t }}</ion-title>
       </ion-toolbar>
     </ion-header>
     <ion-content>

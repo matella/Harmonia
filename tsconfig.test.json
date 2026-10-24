@@ -9,6 +9,7 @@
   "include": [
     "src/**/*.d.ts",
     "src/app/core/**/*.test.ts",
+    "src/app/*.test.ts",
     "supabase/**/*.test.ts",
     "src/testing/**/*.ts",
     "vitest.config.mts"

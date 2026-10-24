@@ -37,7 +37,7 @@ import { SettingsHeaderComponent } from './settings-header.component';
               {{ 'reminders.enabled' | t }}
               <span class="hm-switch-row__hint">{{ 'reminders.enabledHint' | t }}</span>
             </label>
-            <ion-toggle id="r-enabled" [checked]="settings().remindersEnabled" (ionChange)="save({ remindersEnabled: $event.detail.checked })" />
+            <ion-toggle id="r-enabled" [attr.aria-label]="'reminders.enabled' | t" [checked]="settings().remindersEnabled" (ionChange)="save({ remindersEnabled: $event.detail.checked })" />
           </div>
           <div class="hm-switch-row">
             <label class="hm-switch-row__text" for="r-reveal">
@@ -45,7 +45,7 @@ import { SettingsHeaderComponent } from './settings-header.component';
               <span class="hm-switch-row__hint">{{ 'reminders.revealTitlesHint' | t }}</span>
             </label>
             <ion-toggle
-              id="r-reveal"
+              id="r-reveal" [attr.aria-label]="'reminders.revealTitles' | t"
               [checked]="settings().notificationsRevealTitles"
               (ionChange)="save({ notificationsRevealTitles: $event.detail.checked })"
             />
@@ -55,7 +55,7 @@ import { SettingsHeaderComponent } from './settings-header.component';
               {{ 'reminders.together' | t }}
               <span class="hm-switch-row__hint">{{ 'reminders.togetherHint' | t }}</span>
             </label>
-            <ion-toggle id="r-together" [checked]="settings().togetherReminders" (ionChange)="setTogether($event.detail.checked)" />
+            <ion-toggle id="r-together" [attr.aria-label]="'reminders.together' | t" [checked]="settings().togetherReminders" (ionChange)="setTogether($event.detail.checked)" />
           </div>
         </section>
 

@@ -41,7 +41,7 @@ import { I18N_PIPES } from '../../shared/pipes/i18n.pipes';
     <ion-header class="ion-no-border">
       <ion-toolbar>
         <ion-buttons slot="start"><ion-back-button defaultHref="/tabs/home" [text]="''" /></ion-buttons>
-        <ion-title>{{ 'counterDetail.title' | t }}</ion-title>
+        <ion-title role="heading" aria-level="1">{{ 'counterDetail.title' | t }}</ion-title>
       </ion-toolbar>
     </ion-header>
     <ion-content>

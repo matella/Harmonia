@@ -9,7 +9,7 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
-    include: ['src/app/core/**/*.test.ts', 'supabase/**/*.test.ts'],
+    include: ['src/app/core/**/*.test.ts', 'src/app/*.test.ts', 'supabase/**/*.test.ts'],
     environment: 'node',
     globals: false,
     reporters: ['default'],

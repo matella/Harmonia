@@ -69,7 +69,7 @@ import { SettingsHeaderComponent } from './settings-header.component';
               {{ 'appearance.togetherDays' | t }}
               <span class="hm-switch-row__hint">{{ 'appearance.togetherDaysHint' | t }}</span>
             </label>
-            <ion-toggle id="a-together-days" [checked]="settings().togetherDays" (ionChange)="save({ togetherDays: $event.detail.checked })" />
+            <ion-toggle id="a-together-days" [attr.aria-label]="'appearance.togetherDays' | t" [checked]="settings().togetherDays" (ionChange)="save({ togetherDays: $event.detail.checked })" />
           </div>
         </section>
         <section class="hm-section">

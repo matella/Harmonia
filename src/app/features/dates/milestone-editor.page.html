@@ -1,7 +1,7 @@
 <ion-header class="ion-no-border">
   <ion-toolbar>
     <ion-buttons slot="start"><ion-back-button defaultHref="/tabs/dates" [text]="'common.cancel' | t" icon="" /></ion-buttons>
-    <ion-title>{{ (isEdit() ? 'milestone.editTitle' : 'milestone.newTitle') | t }}</ion-title>
+    <ion-title role="heading" aria-level="1">{{ (isEdit() ? 'milestone.editTitle' : 'milestone.newTitle') | t }}</ion-title>
     <ion-buttons slot="end">
       <ion-button [strong]="true" [disabled]="saving()" (click)="save()">{{ 'common.save' | t }}</ion-button>
     </ion-buttons>
@@ -53,7 +53,7 @@
 
       <div class="hm-switch-row">
         <label class="hm-switch-row__text" for="m-has-time">{{ 'milestone.timeLabel' | t }}</label>
-        <ion-toggle id="m-has-time" [checked]="hasTime()" (ionChange)="hasTime.set($event.detail.checked)" />
+        <ion-toggle id="m-has-time" [attr.aria-label]="'milestone.timeLabel' | t" [checked]="hasTime()" (ionChange)="hasTime.set($event.detail.checked)" />
       </div>
       @if (hasTime()) {
         <hm-date-field mode="time" [label]="'milestone.timeLabel' | t" [(value)]="eventTime" [error]="errors().eventTime ?? null" />
@@ -100,7 +100,7 @@
             {{ 'milestone.remindersLabel' | t }}
             <span class="hm-switch-row__hint">{{ 'milestone.remindersHint' | t }}</span>
           </label>
-          <ion-toggle id="m-reminders" [checked]="remindersOn()" (ionChange)="remindersOn.set($event.detail.checked)" />
+          <ion-toggle id="m-reminders" [attr.aria-label]="'milestone.remindersLabel' | t" [checked]="remindersOn()" (ionChange)="remindersOn.set($event.detail.checked)" />
         </div>
         @if (remindersOn()) {
           <div class="reminder-body">
@@ -116,7 +116,7 @@
                 {{ 'milestone.revealTitle' | t }}
                 <span class="hm-switch-row__hint">{{ 'milestone.revealTitleHint' | t }}</span>
               </label>
-              <ion-toggle id="m-reveal" [checked]="revealTitle()" (ionChange)="revealTitle.set($event.detail.checked)" />
+              <ion-toggle id="m-reveal" [attr.aria-label]="'milestone.revealTitle' | t" [checked]="revealTitle()" (ionChange)="revealTitle.set($event.detail.checked)" />
             </div>
           </div>
         }
@@ -162,7 +162,7 @@
           {{ 'milestone.pinLabel' | t }}
           <span class="hm-switch-row__hint">{{ 'milestone.pinHint' | t }}</span>
         </label>
-        <ion-toggle id="m-pin" [checked]="isPinned()" (ionChange)="isPinned.set($event.detail.checked)" />
+        <ion-toggle id="m-pin" [attr.aria-label]="'milestone.pinLabel' | t" [checked]="isPinned()" (ionChange)="isPinned.set($event.detail.checked)" />
       </div>
 
       <button type="submit" class="hm-btn hm-btn--block" [disabled]="saving()">

@@ -27,7 +27,7 @@ import { I18N_PIPES } from '../../shared/pipes/i18n.pipes';
   template: `
     <ion-header class="ion-no-border">
       <ion-toolbar>
-        <ion-title>{{ 'memories.title' | t }}</ion-title>
+        <ion-title role="heading" aria-level="1">{{ 'memories.title' | t }}</ion-title>
         <ion-buttons slot="end">
           <ion-button routerLink="/memory/new" [attr.aria-label]="'memories.add' | t">
             <ion-icon slot="icon-only" name="add" aria-hidden="true" />
