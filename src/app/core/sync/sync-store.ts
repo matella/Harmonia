@@ -2,6 +2,7 @@ import type { Clock } from '../domain/clock';
 import { compareHlc, ZERO_HLC, type Hlc } from '../domain/hlc';
 import { SYNC_SCHEMA, type SyncedRecordType } from '../domain/sync-schema';
 import type { ChangeJournal } from '../persistence/change-journal';
+import { PURGEABLE_TYPES, queueBlobRelease, type PurgeableType } from '../persistence/purge';
 import type { SqlDriver, SqlExecutor, SqlValue } from '../persistence/sql-driver';
 
 /**
@@ -21,6 +22,7 @@ export const PHASE2_TYPES: readonly SyncedRecordType[] = [
   'recovery',
   'memory',
   'memory_media',
+  'purge',
 ];
 
 /**
@@ -124,6 +126,8 @@ export class SyncStore {
       for (const type of PHASE2_TYPES) {
         // A joiner adopts the space's profile first (§6.2), so its own is not queued.
         if (type === 'profile' && !queueProfile) continue;
+        // What was deleted here before sharing never reached the space: nothing to purge.
+        if (type === 'purge') continue;
         await this.queueAll(tx, type);
       }
     });
@@ -577,12 +581,14 @@ export class SyncStore {
       [id],
     );
     if (current[0] && !force && compareHlc(current[0].version, record.version) >= 0) return false;
-    // Deleted for good here: the same or an older version must not come back to the trash.
-    const purged = await tx.query<{ version: string }>(
-      'SELECT version FROM purged_records WHERE record_type = ? AND record_id = ?',
-      [record.type, id],
-    );
-    if (purged[0] && compareHlc(purged[0].version, record.version) >= 0) return false;
+    // Deleted for good (here or by anyone in the space, §18): final, whatever the version.
+    if ((PURGEABLE_TYPES as readonly string[]).includes(record.type)) {
+      const purged = await tx.query<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM purges WHERE id = ?',
+        [id],
+      );
+      if ((purged[0]?.n ?? 0) > 0) return false;
+    }
     if (current[0] && force && current[0].version === record.version) return false;
     if (record.type === 'person' && record.payload['deleted_at'] !== null) {
       // Nobody can delete this device's owner; doing so would also break saving the profile.
@@ -640,12 +646,63 @@ export class SyncStore {
       );
       if (record.type === 'person') await this.dropPlaceholders(tx);
     }
+    if (record.type === 'purge') {
+      await this.removePurged(tx, record.payload['record_type'] as PurgeableType, id);
+    }
     // A pending local change to the same record lost to a newer remote one (or was replaced).
     await tx.run(
       `DELETE FROM outbox WHERE record_type = ? AND record_id = ? AND ${force ? '1 = 1' : 'version < ?'}`,
       force ? [record.type, id] : [record.type, id, record.version],
     );
     return true;
+  }
+
+  /**
+   * Someone deleted this for good (§18): the item goes here too, with what depends on it
+   * the way "Delete forever" does it, and anything of it still waiting to go up. Files left
+   * without a row are removed by the startup cleanup; a photo's server space is queued for
+   * release (it may not have been freed yet).
+   */
+  private async removePurged(tx: SqlExecutor, type: PurgeableType, id: string): Promise<void> {
+    const now = this.clock.now().toString();
+    // A date's memories that went to the trash with it get purge records of their own.
+    const memories = type === 'memory' ? [id] : [];
+    if (type === 'milestone') {
+      await tx.run('UPDATE memories SET milestone_id = NULL WHERE milestone_id = ?', [id]);
+      await tx.run('DELETE FROM milestones WHERE id = ?', [id]); // reminder rules cascade
+    }
+    for (const memoryId of memories) {
+      const media = await tx.query<{ id: string }>(
+        'SELECT id FROM memory_media WHERE memory_id = ?',
+        [memoryId],
+      );
+      for (const m of media) await queueBlobRelease(tx, m.id, now);
+      await tx.run('DELETE FROM memory_media WHERE memory_id = ?', [memoryId]);
+      await tx.run('DELETE FROM memories WHERE id = ?', [memoryId]);
+    }
+    if (type === 'memory_media') {
+      await queueBlobRelease(tx, id, now);
+      await tx.run('DELETE FROM memory_media WHERE id = ?', [id]);
+    }
+    await tx.run('DELETE FROM outbox WHERE record_type = ? AND record_id = ?', [type, id]);
+  }
+
+  // -------------------------------------------------------------------------------
+  // Freeing photo space on the server (§18)
+
+  /** Photos deleted for good whose server space can be freed: their purge is on the server. */
+  async blobsToRelease(): Promise<string[]> {
+    const rows = await this.db.query<{ blob_id: string }>(
+      `SELECT b.blob_id FROM blob_releases b
+       WHERE NOT EXISTS (
+         SELECT 1 FROM outbox o WHERE o.record_type = 'purge' AND o.record_id = b.media_id)
+       ORDER BY b.created_at, b.blob_id`,
+    );
+    return rows.map((r) => r.blob_id);
+  }
+
+  async blobReleased(blobId: string): Promise<void> {
+    await this.db.run('DELETE FROM blob_releases WHERE blob_id = ?', [blobId]);
   }
 
   /** Values for local-only NOT NULL columns when a record is created from the space. */
@@ -666,6 +723,8 @@ export class SyncStore {
       case 'memory_media':
         // The file comes later, from the encrypted blob.
         return { blob_state: 'remote', created_at: now };
+      case 'purge':
+        return { created_at: now };
       default:
         return { created_at: now, updated_at: now };
     }

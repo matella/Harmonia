@@ -7,6 +7,7 @@ import { newId } from '../persistence/ids';
 import { MemoryRepository } from '../persistence/memory.repository';
 import { migrate } from '../persistence/migrations';
 import { SqlJsDriver } from '../persistence/sqljs-driver';
+import { TrashRepository } from '../persistence/trash.repository';
 import { PhotoSync, type PhotoFiles } from './photo-sync';
 import { InMemoryPhotoTransport } from './photo-transport';
 import { loadSyncCrypto, type SyncCrypto } from './sync-crypto-port';
@@ -72,11 +73,13 @@ async function device(server: InMemoryTransport, photos: InMemoryPhotoTransport,
     store,
     files,
     memories: new MemoryRepository(driver, clock, newId, journal),
+    trash: new TrashRepository(driver, clock, journal),
     /** As Sharing.sync: photos up, records, then photos down. */
     sync: async () => {
       const up = await photoSync.upload(SPACE);
       const report = await engine.sync();
-      return { ...report, ...up, downloaded: await photoSync.download(SPACE) };
+      const released = await photoSync.release(SPACE);
+      return { ...report, ...up, released, downloaded: await photoSync.download(SPACE) };
     },
   };
 }
@@ -190,5 +193,74 @@ describe('photos between two devices', () => {
 
     photos.parts.set(key, good); // the honest part again: it arrives
     expect((await b.sync()).downloaded).toBe(1);
+  });
+
+  it('frees a photo’s space once it is removed, on every device', async () => {
+    const { server, photos, a, b } = await pair();
+    a.files.local.set('media/1.jpg', jpeg(300 * 1024, 1));
+    a.files.local.set('media/2.jpg', jpeg(200 * 1024, 2));
+    const made = await a.memories.create(memory(), [
+      { filePath: 'media/1.jpg', thumbnailPath: null },
+      { filePath: 'media/2.jpg', thumbnailPath: null },
+    ]);
+    await a.sync();
+    await b.sync();
+    expect((await b.memories.get(made.id))?.media).toHaveLength(2);
+    const [first] = (await a.memories.get(made.id))!.media;
+
+    // Removing a photo from a memory is final: its purge goes up, then its space is freed.
+    await a.memories.update(made.id, memory(), { add: [], removeIds: [first.id] });
+    expect(await a.sync()).toMatchObject({ released: 1 });
+    expect((await photos.usage()).used).toBe(200 * 1024);
+    expect(photos.parts.size).toBe(1);
+    expect(
+      server.all().some((r) => r.recordType === 'memory_media' && r.recordId === first.id),
+    ).toBe(false);
+    const got = await b.sync();
+    expect(got.changedTypes).toContain('purge');
+    expect((await b.memories.get(made.id))?.media.map((m) => m.id)).toEqual(
+      (await a.memories.get(made.id))?.media.map((m) => m.id),
+    );
+
+    // The memory deleted for good from the trash on B: everything goes, everywhere.
+    await b.memories.delete(made.id);
+    await b.sync();
+    await a.sync();
+    await a.trash.deleteForever('memory', made.id);
+    await a.sync();
+    await b.sync();
+    expect((await photos.usage()).used).toBe(0);
+    expect(photos.parts.size).toBe(0);
+    expect(await b.memories.get(made.id)).toBeNull();
+    expect(await b.trash.list()).toEqual([]);
+    expect(
+      server
+        .all()
+        .map((r) => r.recordType)
+        .sort(),
+    ).toEqual(['purge', 'purge', 'purge']);
+  });
+
+  it('frees the reservation of a photo deleted before its upload finished', async () => {
+    const { photos, a } = await pair();
+    a.files.local.set('media/1.jpg', jpeg(Math.round(1.5 * MiB)));
+    const made = await a.memories.create(memory(), [
+      { filePath: 'media/1.jpg', thumbnailPath: null },
+    ]);
+    photos.failNextUploadOfPart = 1;
+    await a.sync(); // reserved, one part up, then interrupted
+    expect((await photos.usage()).used).toBe(Math.round(1.5 * MiB));
+    const [photo] = (await a.memories.get(made.id))!.media;
+    await a.memories.update(
+      made.id,
+      { ...memory(), body: 'No photo after all' },
+      {
+        add: [],
+        removeIds: [photo.id],
+      },
+    );
+    await a.sync();
+    expect((await photos.usage()).used).toBe(0);
+    expect(photos.parts.size).toBe(0);
   });
 });

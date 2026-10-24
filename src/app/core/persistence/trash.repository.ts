@@ -2,7 +2,8 @@ import type { Clock } from '../domain/clock';
 import type { TrashItem } from '../domain/models';
 import { TRASH_RETENTION_DAYS } from '../domain/trash';
 import { ChangeJournal } from './change-journal';
-import type { SqlDriver, SqlExecutor, SqlRow, SqlValue } from './sql-driver';
+import { recordPurge } from './purge';
+import type { SqlDriver, SqlExecutor, SqlRow } from './sql-driver';
 
 interface TrashRow extends SqlRow {
   kind: 'milestone' | 'memory';
@@ -18,8 +19,8 @@ interface TrashRow extends SqlRow {
  * "Recently deleted" (docs/PARTNER_SYNC.md §6.6). Deleting moves items here; either
  * person can restore them for 30 days, after which they are purged with their photos.
  *
- * Phase 2: in a shared space, a purge must keep a content-free tombstone row so the
- * deletion still propagates; on a solo device the rows are removed entirely.
+ * Deleting from here, or the 30-day purge, is final: in a shared space a content-free
+ * purge record takes the item off every device and the server (PARTNER_SYNC §18).
  */
 export class TrashRepository {
   constructor(
@@ -77,6 +78,7 @@ export class TrashRepository {
 
   /** Purges items deleted more than 30 days ago, and old photo tombstones. Returns files to delete. */
   async purgeExpired(): Promise<string[]> {
+    const now = this.clock.now().toString();
     const cutoff = this.clock.now().subtract({ hours: 24 * TRASH_RETENTION_DAYS }).toString();
     return this.db.transaction(async (tx) => {
       const files: string[] = [];
@@ -88,12 +90,8 @@ export class TrashRepository {
       );
       for (const item of expired) files.push(...(await this.removeForever(tx, item.kind, item.id)));
       // Photos removed while editing were deleted from disk already; drop their old tombstones.
-      await this.rememberPurged(
-        tx,
-        'memory_media',
-        'SELECT id, version FROM memory_media WHERE deleted_at IS NOT NULL AND deleted_at < ?',
-        [cutoff],
-      );
+      const old = await tx.query<{ id: string }>('SELECT id FROM memory_media WHERE deleted_at IS NOT NULL AND deleted_at < ?', [cutoff]);
+      for (const m of old) await recordPurge(tx, this.journal, now, 'memory_media', m.id);
       await tx.run('DELETE FROM memory_media WHERE deleted_at IS NOT NULL AND deleted_at < ?', [cutoff]);
       return files;
     });
@@ -107,25 +105,6 @@ export class TrashRepository {
       [version, now, await this.journal.selfPersonId(tx), id],
     );
     await this.journal.changed(tx, type, id, version);
-  }
-
-  /**
-   * Notes rows about to be deleted for good, with their version, so a pull of the same or
-   * an older version from the space doesn't bring them back (docs/PARTNER_SYNC.md §18).
-   */
-  private async rememberPurged(
-    tx: SqlExecutor,
-    type: 'milestone' | 'memory' | 'memory_media',
-    select: string,
-    params: SqlValue[],
-  ): Promise<void> {
-    for (const row of await tx.query<{ id: string; version: string }>(select, params)) {
-      await tx.run(
-        `INSERT INTO purged_records (record_type, record_id, version) VALUES (?, ?, ?)
-         ON CONFLICT (record_type, record_id) DO UPDATE SET version = excluded.version`,
-        [type, row.id, row.version],
-      );
-    }
   }
 
   private async removeForever(tx: SqlExecutor, kind: TrashItem['kind'], id: string): Promise<string[]> {
@@ -149,8 +128,11 @@ export class TrashRepository {
         [memoryId],
       );
       if ((gone[0]?.n ?? 0) === 0) continue;
-      await this.rememberPurged(tx, 'memory', 'SELECT id, version FROM memories WHERE id = ?', [memoryId]);
-      await this.rememberPurged(tx, 'memory_media', 'SELECT id, version FROM memory_media WHERE memory_id = ?', [memoryId]);
+      const now = this.clock.now().toString();
+      await recordPurge(tx, this.journal, now, 'memory', memoryId);
+      for (const m of await tx.query<{ id: string }>('SELECT id FROM memory_media WHERE memory_id = ?', [memoryId])) {
+        await recordPurge(tx, this.journal, now, 'memory_media', m.id);
+      }
       // Not a foreign key any more (records arrive in any order): the photos go explicitly.
       await tx.run('DELETE FROM memory_media WHERE memory_id = ?', [memoryId]);
       await tx.run('DELETE FROM memories WHERE id = ?', [memoryId]);
@@ -163,7 +145,8 @@ export class TrashRepository {
       if (own[0]?.photo_path) files.push(own[0].photo_path);
       // Kept memories still pointing at this date become unlinked for good.
       await tx.run('UPDATE memories SET milestone_id = NULL WHERE milestone_id = ?', [id]);
-      await this.rememberPurged(tx, 'milestone', 'SELECT id, version FROM milestones WHERE id = ? AND deleted_at IS NOT NULL', [id]);
+      const trashed = await tx.query<{ n: number }>('SELECT COUNT(*) AS n FROM milestones WHERE id = ? AND deleted_at IS NOT NULL', [id]);
+      if ((trashed[0]?.n ?? 0) > 0) await recordPurge(tx, this.journal, this.clock.now().toString(), 'milestone', id);
       await tx.run('DELETE FROM milestones WHERE id = ? AND deleted_at IS NOT NULL', [id]); // rules cascade
     }
     return files;

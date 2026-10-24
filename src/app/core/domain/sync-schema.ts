@@ -5,7 +5,14 @@
  * cannot slip into sync by accident.
  */
 export type SyncedRecordType =
-  'profile' | 'person' | 'milestone' | 'memory' | 'memory_media' | 'device' | 'recovery';
+  | 'profile'
+  | 'person'
+  | 'milestone'
+  | 'memory'
+  | 'memory_media'
+  | 'device'
+  | 'recovery'
+  | 'purge';
 
 export interface TableSyncSchema {
   table: string;
@@ -82,6 +89,13 @@ export const SYNC_SCHEMA: Readonly<Record<SyncedRecordType, TableSyncSchema>> = 
     local: ['created_at', 'updated_at'],
     meta: ['version', 'author_person_id'],
   },
+  // Deleted for good (PARTNER_SYNC §18): content-free, keyed by the item's ID.
+  purge: {
+    table: 'purges',
+    shared: ['id', 'record_type'],
+    local: ['created_at'],
+    meta: ['version'],
+  },
   device: {
     table: 'space_devices',
     shared: ['id', 'person_id', 'sign_public_key', 'box_public_key', 'platform', 'revoked_at'],
@@ -99,5 +113,5 @@ export const LOCAL_ONLY_TABLES = [
   'sync_state',
   'outbox',
   'schema_migrations',
-  'purged_records',
+  'blob_releases',
 ] as const;

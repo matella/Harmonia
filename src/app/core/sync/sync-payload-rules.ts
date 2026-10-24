@@ -48,6 +48,11 @@ const base64Of = (value: SqlValue, bytes: number) =>
 const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
 
 const RULES: Readonly<Partial<Record<SyncedRecordType, (p: Payload) => boolean>>> = {
+  // Only these can be deleted for good: a purge naming anything else is refused (§18).
+  purge: (p) =>
+    p['record_type'] === 'milestone' ||
+    p['record_type'] === 'memory' ||
+    p['record_type'] === 'memory_media',
   memory: (p) =>
     optionalUuid(p['milestone_id']) &&
     optionalText(p['title'], LIMITS.memoryTitle) &&

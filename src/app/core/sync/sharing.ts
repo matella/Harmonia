@@ -47,6 +47,8 @@ export type SharingErrorCode =
   | 'newKeyNotTrusted'
   | 'unknownDevice'
   | 'removalPending'
+  /** Leaving couldn't delete every photo yet; the next sync carries on. */
+  | 'leavePending'
   /** Another key change (a recovery key being saved) must finish first. */
   | 'keyChangePending'
   /** The recovery key typed in is incomplete or has a typo (checksum). */
@@ -478,6 +480,11 @@ export class Sharing {
     if ((await this.read<PendingJoin>(NAMES.join)) || (await this.read(NAMES.recover))) {
       throw new SharingError('joinInProgress');
     }
+    // Leaving was interrupted: finish it, nothing else (no uploads into a space being left).
+    if (await this.read(NAMES.leaving)) {
+      await this.finishLeaving();
+      throw new SharingEndedError('dissolved');
+    }
     const device = await this.deps.session.connect();
     const api = new SpaceApi(device.client);
     // Before anything else (a member without its key must still learn this): after a
@@ -508,6 +515,8 @@ export class Sharing {
     await this.repairEnvelopes(api, device);
     await this.repairRecovery(api, device);
     if (!photos || !up) return { ...report, photos: null };
+    // After the push: a photo's space is freed only once its purge is on the server.
+    await photos.release(state.spaceId);
     const downloaded = await photos.download(state.spaceId);
     const changedTypes =
       downloaded > 0 && !report.changedTypes.includes('memory_media')
@@ -635,6 +644,9 @@ export class Sharing {
         (d) => !d.revokedAt && d.id !== device.deviceId && !removedOnServer.has(d.id),
       );
       if (others.length === 0) {
+        // The last device: its photos go before the space (§18). If this stops halfway,
+        // the operator's cleanup takes what is left (the device is being wiped anyway).
+        await new SupabasePhotoTransport(device.client).removeSpace(current.spaceId);
         await api.dissolveSpace();
         break;
       }
@@ -1127,9 +1139,33 @@ export class Sharing {
    * between, the next sync notices that the space is gone and finishes the job.
    */
   async leave(): Promise<void> {
-    if (!(await this.deps.store.state())) throw new SharingError('notSharing');
+    const state = await this.deps.store.state();
+    if (!state) throw new SharingError('notSharing');
+    // Recorded first: an interrupted leave is finished by the next sync, never left with
+    // the photos half gone from a space still in use.
+    await this.write(NAMES.leaving, { spaceId: state.spaceId });
+    try {
+      await this.finishLeaving();
+    } catch (error) {
+      if (error instanceof SharingEndedError) return; // the space was gone already
+      throw error;
+    }
+  }
+
+  /**
+   * The photos go first, through Storage: once the space is dissolved nobody is a member
+   * and nobody may delete them any more (§18). Only when none is left is it dissolved.
+   */
+  private async finishLeaving(): Promise<void> {
+    const state = await this.deps.store.state();
+    if (!state) return;
     const device = await this.deps.session.connect();
-    await new SpaceApi(device.client).dissolveSpace();
+    const api = new SpaceApi(device.client);
+    await this.checkStillMember(api);
+    if (!(await new SupabasePhotoTransport(device.client).removeSpace(state.spaceId))) {
+      throw new SharingError('leavePending');
+    }
+    await api.dissolveSpace();
     await this.stopSharingHere();
   }
 

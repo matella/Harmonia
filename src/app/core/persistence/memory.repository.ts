@@ -4,6 +4,7 @@ import type { ValidMemory } from '../domain/validation';
 import { ChangeJournal } from './change-journal';
 import type { IdFactory } from './ids';
 import type { SqlDriver, SqlExecutor, SqlRow } from './sql-driver';
+import { recordPurge } from './purge';
 
 interface MemoryRow extends SqlRow {
   id: string;
@@ -103,7 +104,7 @@ export class MemoryRepository {
 
   /**
    * Returns app-private files that are no longer referenced after the update. Removed
-   * photos leave a tombstone row (for sync); their files can be deleted right away.
+   * photos are deleted for good (a purge, for sync); their files can be deleted right away.
    */
   async update(id: string, input: ValidMemory, changes: MediaChanges): Promise<{ memory: Memory; orphanedFiles: string[] }> {
     const now = this.clock.now().toString();
@@ -125,9 +126,10 @@ export class MemoryRepository {
         for (const row of rows) {
           if (row.file_path) removed.push(row.file_path);
           if (row.thumbnail_path) removed.push(row.thumbnail_path);
-          const mediaVersion = await this.journal.stamp(tx);
-          await tx.run('UPDATE memory_media SET deleted_at = ?, version = ? WHERE id = ?', [now, mediaVersion, row.id]);
-          await this.journal.changed(tx, 'memory_media', row.id, mediaVersion);
+          // Final, like "Delete forever": its file goes at once, so it must not come back
+          // through a later edit elsewhere (PARTNER_SYNC §18).
+          await recordPurge(tx, this.journal, now, 'memory_media', row.id);
+          await tx.run('DELETE FROM memory_media WHERE id = ?', [row.id]);
         }
       }
       const max = await tx.query<{ n: number | null }>(

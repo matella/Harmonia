@@ -1314,6 +1314,8 @@ export function errorKey(error: unknown): MessageKey {
       return 'sharing.error.newKey';
     case 'removalPending':
       return 'sharing.error.removalPending';
+    case 'leavePending':
+      return 'sharing.error.leavePending';
     case 'keyChangePending':
       return 'sharing.error.keyChangePending';
     case 'inviteMismatch':

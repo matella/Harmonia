@@ -3,6 +3,8 @@ import { execSync } from 'node:child_process';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { SupabasePhotoTransport } from '../../src/app/core/sync/photo-transport';
+
 /**
  * What the local Supabase stack enforces for photos (docs/PARTNER_SYNC.md §18), tried
  * the way a hostile member would: straight against Storage with their own session, not
@@ -247,11 +249,70 @@ describe.skipIf(!live)('photo storage on a live local Supabase', () => {
     ).toBe(`false ${PART_LIMIT}`);
   });
 
+  it('frees a reservation only once its parts are gone, and deletes a whole space’s photos', async () => {
+    const transport = new SupabasePhotoTransport(member);
+    const photo = crypto.randomUUID();
+    expect((await member.rpc('reserve_blob', { blob: photo, size: 1 })).error).toBeNull();
+    expect((await upload(member, `${space}/${photo}/0`, random(18))).error).toBeNull();
+    expect((await member.rpc('release_blob', { blob: photo })).error?.message).toMatch(
+      /parts remain/,
+    );
+    await transport.removeParts(space, photo);
+    await transport.release(photo);
+    expect(psql(`select count(*) from blobs where id = '${photo}'`)).toBe('0');
+
+    // More photos than one page of Storage listing (100): all of them go.
+    const many = Array.from({ length: 105 }, () => crypto.randomUUID());
+    for (const blob of many) {
+      expect((await member.rpc('reserve_blob', { blob, size: 1 })).error).toBeNull();
+      expect((await upload(member, `${space}/${blob}/0`, random(18))).error).toBeNull();
+    }
+    expect(await transport.removeSpace(space)).toBe(true);
+    expect(psql(`select count(*) from storage.objects where name like '${space}/%'`)).toBe('0');
+  }, 120000);
+
+  it('lets the operator clean up what a crash left behind', async () => {
+    // A space left while its photos were still there (as after a crash halfway).
+    const other = await device(stackUrl, stackKey);
+    const created = await other.rpc('create_space', {
+      sealed_key: hex(random(80)),
+      self_person: crypto.randomUUID(),
+    });
+    const otherSpace = (created.data as { space_id: string }[])[0].space_id;
+    const lost = crypto.randomUUID();
+    expect((await other.rpc('reserve_blob', { blob: lost, size: 1 })).error).toBeNull();
+    expect((await upload(other, `${otherSpace}/${lost}/0`, random(18))).error).toBeNull();
+    const never = crypto.randomUUID();
+    expect((await member.rpc('reserve_blob', { blob: never, size: 5 })).error).toBeNull();
+    expect((await other.rpc('dissolve_space')).error).toBeNull();
+    psql(
+      `update storage.objects set created_at = now() - interval '2 hours' where name like '${otherSpace}/%'`,
+    );
+    psql(`update blobs set created_at = now() - interval '2 days' where id = '${never}'`);
+
+    const status = JSON.parse(execSync('bunx supabase status -o json', { encoding: 'utf-8' }));
+    const out = execSync('node scripts/cleanup-photo-storage.mjs', {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        SUPABASE_URL: stackUrl,
+        SUPABASE_SERVICE_ROLE_KEY: status['SERVICE_ROLE_KEY'],
+      },
+    });
+    expect(out).toMatch(/Removed [1-9]\d* orphan photo part\(s\); released [1-9]\d* unused/);
+    expect(psql(`select count(*) from storage.objects where name like '${otherSpace}/%'`)).toBe(
+      '0',
+    );
+    expect(psql(`select count(*) from blobs where id = '${never}'`)).toBe('0');
+  });
+
   it('refuses reservations past the space’s limit, which the operator can change', async () => {
     const before = await member.rpc('space_storage');
     expect(before.error).toBeNull();
     const used = Number((before.data as { used: number }[])[0].used);
-    expect(used).toBe(Math.round(1.5 * MiB) + 3 * MiB + 2);
+    expect(used).toBe(
+      Number(psql(`select coalesce(sum(size), 0) from blobs where space_id = '${space}'`)),
+    );
     psql(`update storage_settings set photo_bytes_per_space = ${used + 2 * MiB}`);
     try {
       expect(

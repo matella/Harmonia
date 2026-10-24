@@ -785,7 +785,7 @@ Built as revised in §8 (key pair, separate `recovery` record, hashed lookups, s
 **Phase 2 status:** the invite and core sync are complete for the profile, persons and dates. They are verified between the Android emulator and the browser preview against a local server. Next is phase 3 (devices and leaving), then phase 4 (recovery key), which real users need before `SYNC_CONFIG` can be set.
 
 **Still open from phase 1:**
-- "Delete forever" and the 30-day purge remove the row locally but do not reach the other device yet. They need a content-free tombstone that syncs.
+- "Delete forever" and the 30-day purge remove the row locally but do not reach the other device yet. They need a content-free tombstone that syncs. *(Done in phase 5, slice 3: §18.)*
 
 ## 18. Phase 5: memories and photos (2026-10-23)
 
@@ -802,7 +802,7 @@ Built as revised in §8 (key pair, separate `recovery` record, hashed lookups, s
 
 - **Local schema 6:** `memories.milestone_id` and `memory_media.memory_id` are no longer foreign keys. A pull is ordered by each record's latest change, so after an edit a photo record can arrive before its memory, and a memory before its date. With foreign keys on, that insert failed and the record was skipped for good. The repositories now delete a memory's photo rows explicitly.
 - `memory_media` gains `blob_id`, `blob_key`, `blob_header`, `blob_size` (shared) and `blob_state` (local: `local`, `uploaded` or `remote`); `file_path` may be empty for a photo not downloaded yet, and such photos aren't shown yet.
-- **Deleted for good stays deleted:** a local `purged_records` table keeps the version of what "delete forever" and the purge removed, and a pull of the same or an older version is ignored. Without it, the full re-pull after an update (capability 4) would have brought such items back to the trash. A newer version (the partner restores or edits it) still comes back.
+- **Deleted for good stays deleted:** a local `purged_records` table keeps the version of what "delete forever" and the purge removed, and a pull of the same or an older version is ignored. Without it, the full re-pull after an update (capability 4) would have brought such items back to the trash. *(Slice 3 replaced this with synced purge records, and made deleting for good final: a newer version no longer brings it back.)*
 - **Memories made before sharing could sync** go up once: moving to capability 4 queues every memory and photo record (photos still wait for slice 2). Memory edits made while sharing were already queued and go up too, once.
 - Payload rules: lengths as in the editor, a valid date, IDs as UUIDs, and the blob fields all present (valid sizes) or all empty.
 - The sharing screen now says memories are shared and photos will follow.
@@ -859,8 +859,45 @@ Built as revised in §8 (key pair, separate `recovery` record, hashed lookups, s
 
 **Phase 5's done-when** ("photos appear on the other device; a resumable upload is verified"): photos appear on the other device, on the emulator. Resuming is verified in sql.js tests (per photo, as above), not on a device.
 
-**Still open (slice 3), before real users:**
-- Deleting a photo for good doesn't free its space on the server yet.
-- **Leaving the space doesn't delete its photos from Storage**: the database rows go, the files stay. The Leave screen says the server copy is deleted, which is true for records but not yet for photos. Once `dissolve_space` has run, nobody is a member any more and no one passes the delete policy, so slice 3 must delete the parts *before* dissolving, and also needs a server-side cleanup (service role) for a crash in between.
-- A received photo that fails its checks is retried on every sync; a cap on attempts would save the downloads.
+**Left for slice 3 (done there, below):** freeing a photo's space when it is deleted for good, and deleting a space's photos when it is left. Still open: a received photo that fails its checks is retried on every sync; a cap on attempts would save the downloads.
+
+### Slice 3: deleting for good (2026-10-24)
+
+**A content-free purge record** (`purge`, capability 5, local schema 7):
+- "Delete forever" from Recently deleted, the 30-day purge, and **removing a photo from a memory** now each write a purge record: only the item's ID, with its type inside the encryption. Every device deletes the item (and what depends on it, the way "Delete forever" does), and drops anything of it still waiting to go up. A purge is final: no later version brings the item back, on any device or after a full re-pull.
+- Removing a photo is a purge rather than a tombstone because its file is deleted at once: a tombstone could be undone by a concurrent edit elsewhere, leaving everyone a photo whose file is gone.
+- On the server (`20261024000000_purges.sql`), a purge record deletes the item's records and later writes to that ID are skipped. **Only dates, memories and photos**: record IDs are shared across types (a person's recovery record has the person's ID, device records carry removals), and the server can't see which type a purge meant. The device also refuses a purge naming another type.
+- Received purges reach reminders and widgets like any other change.
+
+**Freeing photo space:**
+- The server can't see which stored photo a record belongs to, so the device does it. Once the photo's purge is on the server, it deletes the parts through Storage and calls `release_blob()`. (Earlier, a crash could leave the partner a live photo whose file is gone.) The server refuses a release while any part remains, so the limit can't be gamed.
+- Photos deleted before their upload finished release their reservation the same way. Any device that learns of the purge may do it; it is idempotent.
+
+**Leaving:**
+- Leave (and *Delete all data* on the last device) deletes every photo of the space through Storage **before** dissolving it: afterwards nobody is a member, and nobody may delete them. Storage lists 100 entries a page and one folder level at a time; every page and folder is taken.
+- Leaving is recorded first, so an interrupted leave is finished by the next sync (nothing else syncs meanwhile), and the space is dissolved only once Storage is empty for it.
+- What a crash still leaves behind (photos of a space that is gone or no longer reserved, and reservations that never got a part) is cleaned by **`scripts/cleanup-photo-storage.mjs`**. The operator runs it with the service role; `orphan_photo_parts()` and `release_stale_reservations()` are service role only. **On the hosted project it must run on a schedule**, for example hourly.
+
+**Also fixed:** the received-photo check reads every kind of JPEG frame header the way a decoder does. It refuses a file whose first frame header is a kind we don't make, or that has two of them (found by the automated security review).
+
+**Tests:**
+- PGlite (`purges.test.ts`, 4): a purged date is removed and stays removed; a purge carrying a person's ID leaves the person and recovery records intact and writable; a release is refused while parts remain; the cleanup functions are the operator's only.
+- sql.js:
+  - a memory deleted for good on one device leaves only a purge record and goes from the other device, for good, even after a full re-pull (`memory-sync.test.ts`);
+  - a removed photo's space is freed after its purge, and it goes from the other device; deleting a memory for good frees all its photos; a photo deleted mid-upload releases its reservation (`photo-sync.test.ts`);
+  - an interrupted leave is resumed by the next sync, and nothing else is synced meanwhile (`sharing.test.ts`);
+  - the JPEG check (`jpeg.test.ts`).
+- Live, local stack:
+  - a release only once parts are gone; 105 photos deleted across two pages of listing;
+  - the cleanup script removes a crashed leave's photos and an unused reservation;
+  - through `Sharing`, a removed photo leaves the other phone, the records (only a purge is left) and Storage; leaving with a photo shared empties Storage before the space goes.
+- **On the emulator** (API 37.2, development build, alone in a space):
+  - a photo picked through Android's picker went up as one part of exactly the photo's size plus 17 bytes per chunk;
+  - removing it in the memory editor left a purge record, and emptied Storage and the reservations;
+  - a photo shared again was deleted from Storage when leaving from the screen, and the space was gone;
+  - WebView-encoded JPEGs pass the stricter check.
+
+**Not verified:** a purge arriving on a device (covered by sql.js and live tests); the cleanup script on a hosted project.
+
+**Noticed (not new):** while an invite is waiting, the sharing screen shows only the invite, with no way to *Sync now* or *Leave* until it is answered or expires.
 

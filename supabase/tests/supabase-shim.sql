@@ -3,6 +3,7 @@
 -- auth.uid() mirrors Supabase's implementation: the `sub` claim of the request's JWT.
 create role anon nologin;
 create role authenticated nologin;
+create role service_role nologin bypassrls;
 create schema auth;
 create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
@@ -29,6 +30,7 @@ create table storage.objects (
   name text,
   -- Storage sets the file's size here before the row is inserted.
   metadata jsonb,
+  created_at timestamptz default now(),
   unique (bucket_id, name)
 );
 alter table storage.objects enable row level security;

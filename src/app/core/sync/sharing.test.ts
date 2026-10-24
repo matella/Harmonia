@@ -126,10 +126,15 @@ const membershipRow = (spaceId: string | null, revoked = false) => ({
 });
 
 describe('leaving and noticing the end', () => {
-  it('stays a member when leaving fails offline', async () => {
-    const { store, sharing } = await member({ dissolve_space: OFFLINE });
+  it('stays a member when leaving fails offline, and finishes leaving on the next sync', async () => {
+    const { store, sharing, secrets, calls } = await member({ membership: OFFLINE });
     await expect(sharing.leave()).rejects.toMatchObject({ code: 'network' });
     expect(await store.state()).not.toBeNull();
+    expect(await secrets.get('sharing.leaving')).not.toBeNull();
+    // The next sync only tries to leave: nothing else is pulled or pushed meanwhile.
+    calls.length = 0;
+    await expect(sharing.sync()).rejects.toMatchObject({ code: 'network' });
+    expect(calls).toEqual(['membership']);
   });
 
   it('goes solo when the server says the space is gone, keeping the partner as a local name', async () => {

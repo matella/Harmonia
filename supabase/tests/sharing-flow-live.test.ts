@@ -886,6 +886,41 @@ describe.skipIf(!live)('sharing flow over a live local Supabase', () => {
     expect(Buffer.from(samFiles.saved.get(media[0].filePath)!).equals(Buffer.from(original))).toBe(
       true,
     );
+
+    // Removed from the memory: gone from Sam's phone, from the records and from Storage.
+    const parts = () =>
+      psql(
+        `select count(*) from storage.objects where bucket_id = 'photos' and name like '${spaceId}/%'`,
+      );
+    await alex.memories.update(
+      made.id,
+      { title: 'Ghent', body: 'No photo now', memoryDate: '2025-03-02', milestoneId: null },
+      { add: [], removeIds: [media[0].id] },
+    );
+    await alex.sharing.sync();
+    expect(parts()).toBe('0');
+    expect(await alex.sharing.photoStorage()).toEqual({ used: 0, limit: 2147483648 });
+    expect(
+      psql(
+        `select record_type from records where space_id = '${spaceId}' and record_id = '${media[0].id}'`,
+      ),
+    ).toBe('purge');
+    await sam.sharing.sync();
+    expect((await sam.memories.get(made.id))?.media).toEqual([]);
+
+    // Leaving with a photo still shared: the photos go from Storage before the space does.
+    alexFiles.local.set('media/b.jpg', original.slice(0, 1000));
+    await alex.memories.update(
+      made.id,
+      { title: 'Ghent', body: null, memoryDate: '2025-03-02', milestoneId: null },
+      { add: [{ filePath: 'media/b.jpg', thumbnailPath: null }], removeIds: [] },
+    );
+    await alex.sharing.sync();
+    expect(parts()).toBe('1');
+    await sam.sharing.leave();
+    expect(parts()).toBe('0');
+    expect(psql(`select count(*) from spaces where id = '${spaceId}'`)).toBe('0');
+    await expect(alex.sharing.sync()).rejects.toBeInstanceOf(SharingEndedError);
   });
 
   it('cleans up', async () => {

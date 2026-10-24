@@ -284,6 +284,31 @@ export const MIGRATIONS: readonly Migration[] = [
       )`,
     ],
   },
+  {
+    version: 7,
+    name: 'deleting for good in a shared space (partner sharing phase 5, slice 3)',
+    statements: [
+      // What was deleted for good, now also a synced, content-free record (keyed by the
+      // item's ID, its type inside the encryption): every device deletes it too, and a
+      // pull never brings it back. Replaces purged_records.
+      `CREATE TABLE purges (
+        id TEXT PRIMARY KEY,
+        record_type TEXT NOT NULL CHECK (record_type IN ('milestone', 'memory', 'memory_media')),
+        version TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )`,
+      `INSERT OR IGNORE INTO purges (id, record_type, version, created_at)
+       SELECT record_id, record_type, version, '1970-01-01T00:00:00Z' FROM purged_records
+       WHERE record_type IN ('milestone', 'memory', 'memory_media')`,
+      `DROP TABLE purged_records`,
+      // Photos whose space on the server is still to be freed (after their purge is sent).
+      `CREATE TABLE blob_releases (
+        blob_id TEXT PRIMARY KEY,
+        media_id TEXT,
+        created_at TEXT NOT NULL
+      )`,
+    ],
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

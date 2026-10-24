@@ -99,8 +99,19 @@ export class InMemoryTransport implements SyncTransport {
     const key = this.key(spaceId, record.recordType, record.recordId);
     const existing = this.rows.get(key);
     if (existing && record.version <= existing.version) return null;
+    // Like the server's purge triggers (§18): an item deleted for good stays deleted.
+    const purgeable = ['milestone', 'memory', 'memory_media'];
+    if (
+      purgeable.includes(record.recordType) &&
+      this.rows.has(this.key(spaceId, 'purge', record.recordId))
+    ) {
+      return null;
+    }
     const seq = ++this.seq;
     this.rows.set(key, { ...record, seq });
+    if (record.recordType === 'purge') {
+      for (const type of purgeable) this.rows.delete(this.key(spaceId, type, record.recordId));
+    }
     return seq;
   }
 

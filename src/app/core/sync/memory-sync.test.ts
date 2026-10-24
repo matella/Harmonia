@@ -178,12 +178,12 @@ describe('memories between two devices', () => {
         .filter((r) => r.recordType === 'memory')
         .map((r) => r.recordId),
     ).toEqual([old.id]);
-    expect((await a.store.state())?.capability).toBe(4);
+    expect((await a.store.state())?.capability).toBe(5);
     await a.engine.sync();
     expect(server.all().filter((r) => r.recordType === 'memory')).toHaveLength(1);
   });
 
-  it('never brings back to the trash what was deleted for good here', async () => {
+  it('deletes for good on every device, and never brings it back', async () => {
     const server = new InMemoryTransport();
     const a = await device(server);
     const b = await device(server);
@@ -198,16 +198,20 @@ describe('memories between two devices', () => {
     expect((await b.trash.list()).map((t) => t.id)).toEqual([made.id]);
 
     await b.trash.deleteForever('memory', made.id);
-    // A full pull (after an update) brings the same tombstone again: it stays gone.
+    await b.engine.sync();
+    // Only a content-free purge record is left on the server.
+    expect(server.all().map((r) => r.recordType)).toEqual(['purge']);
+    await a.engine.sync();
+    expect(await a.trash.list()).toEqual([]);
+    expect(await a.memories.get(made.id)).toBeNull();
+
+    // A full pull (after an update) can't bring it back, and neither can an old copy.
     await b.driver.run('UPDATE sync_state SET capability = 3');
     await b.engine.sync();
     expect(await b.trash.list()).toEqual([]);
-
-    // A newer version (the partner restores it) does come back.
-    await a.trash.restoreMemory(made.id);
+    await a.trash.restoreMemory(made.id); // nothing left to restore
     await a.engine.sync();
-    await b.engine.sync();
-    expect((await b.memories.get(made.id))?.title).toBe('Ghent');
+    expect(server.all().map((r) => r.recordType)).toEqual(['purge']);
   });
 
   it('refuses memory and photo records the editors would refuse', async () => {
@@ -251,5 +255,21 @@ describe('schema 6', () => {
     await driver.run(
       `INSERT INTO memories (id, milestone_id, memory_date, created_at, updated_at) VALUES ('m2', 'not-yet', '2025-01-01', 'x', 'x')`,
     );
+  });
+});
+
+describe('schema 7', () => {
+  it('keeps what was deleted for good as purges, and adds the release queue', async () => {
+    const driver = await SqlJsDriver.open();
+    await migrate(driver, MIGRATIONS.slice(0, 6));
+    await driver.run(
+      `INSERT INTO purged_records (record_type, record_id, version) VALUES ('memory', 'm1', '0000000000001-000000-0000abcd')`,
+    );
+    await migrate(driver);
+    expect(await driver.query('SELECT id, record_type, version FROM purges')).toEqual([
+      { id: 'm1', record_type: 'memory', version: '0000000000001-000000-0000abcd' },
+    ]);
+    expect(await driver.query('SELECT COUNT(*) AS n FROM blob_releases')).toEqual([{ n: 0 }]);
+    await expect(driver.query('SELECT * FROM purged_records')).rejects.toThrow();
   });
 });

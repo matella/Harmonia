@@ -64,6 +64,26 @@ export class PhotoSync {
     return { uploaded, waiting: pending.length - uploaded, storageFull };
   }
 
+  /**
+   * Frees the server space of photos deleted for good, once their purge is on the server
+   * (freed earlier, a crash could leave the partner a photo whose file is gone). Returns
+   * how many were freed; the rest are tried again next time.
+   */
+  async release(spaceId: string): Promise<number> {
+    let released = 0;
+    for (const blobId of await this.store.blobsToRelease()) {
+      try {
+        await this.transport.removeParts(spaceId, blobId);
+        await this.transport.release(blobId);
+        await this.store.blobReleased(blobId);
+        released++;
+      } catch {
+        // Offline: next time.
+      }
+    }
+    return released;
+  }
+
   /** Downloads photos from the space that aren't on this device yet. */
   async download(spaceId: string): Promise<number> {
     let downloaded = 0;

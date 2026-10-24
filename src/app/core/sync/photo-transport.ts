@@ -12,6 +12,10 @@ export interface PhotoTransport {
   download(spaceId: string, blobId: string, part: number): Promise<Uint8Array>;
   /** Deletes every stored part of a photo (an interrupted upload starts again). */
   removeParts(spaceId: string, blobId: string): Promise<void>;
+  /** Frees a photo's reservation; refused by the server while parts remain. */
+  release(blobId: string): Promise<void>;
+  /** Deletes every photo of the space (before leaving it); true once none is left. */
+  removeSpace(spaceId: string): Promise<boolean>;
   /** Bytes reserved in my space, and the limit. */
   usage(): Promise<{ used: number; limit: number }>;
 }
@@ -33,6 +37,7 @@ export class PhotoTransferError extends Error {
 }
 
 const BUCKET = 'photos';
+const LIST_PAGE = 100;
 
 export class SupabasePhotoTransport implements PhotoTransport {
   constructor(private readonly client: SupabaseClient) {}
@@ -64,13 +69,36 @@ export class SupabasePhotoTransport implements PhotoTransport {
 
   async removeParts(spaceId: string, blobId: string): Promise<void> {
     const folder = `${spaceId}/${blobId}`;
-    const { data, error } = await this.client.storage.from(BUCKET).list(folder);
-    if (error) throw new PhotoTransferError('list');
-    if (!data || data.length === 0) return;
-    const removed = await this.client.storage
-      .from(BUCKET)
-      .remove(data.map((f) => `${folder}/${f.name}`));
-    if (removed.error) throw new PhotoTransferError('remove');
+    // Listing is paginated: take every page before removing anything.
+    const names = (await this.listAll(folder)).map((name) => `${folder}/${name}`);
+    for (let i = 0; i < names.length; i += LIST_PAGE) {
+      const removed = await this.client.storage.from(BUCKET).remove(names.slice(i, i + LIST_PAGE));
+      if (removed.error) throw new PhotoTransferError('remove');
+    }
+  }
+
+  async release(blobId: string): Promise<void> {
+    const { error } = await this.client.rpc('release_blob', { blob: blobId });
+    if (error) throw new PhotoTransferError('release');
+  }
+
+  async removeSpace(spaceId: string): Promise<boolean> {
+    // One folder per photo, one level at a time.
+    for (const blob of await this.listAll(spaceId)) await this.removeParts(spaceId, blob);
+    return (await this.listAll(spaceId)).length === 0;
+  }
+
+  /** Every name in a folder (files, or subfolders), across all pages. */
+  private async listAll(folder: string): Promise<string[]> {
+    const names: string[] = [];
+    for (let offset = 0; ; offset += LIST_PAGE) {
+      const { data, error } = await this.client.storage
+        .from(BUCKET)
+        .list(folder, { limit: LIST_PAGE, offset, sortBy: { column: 'name', order: 'asc' } });
+      if (error || !data) throw new PhotoTransferError('list');
+      names.push(...data.map((f) => f.name));
+      if (data.length < LIST_PAGE) return names;
+    }
   }
 
   async usage(): Promise<{ used: number; limit: number }> {
@@ -124,6 +152,20 @@ export class InMemoryPhotoTransport implements PhotoTransport {
     for (const key of [...this.parts.keys()]) {
       if (key.startsWith(`${spaceId}/${blobId}/`)) this.parts.delete(key);
     }
+  }
+
+  async release(blobId: string): Promise<void> {
+    if ([...this.parts.keys()].some((k) => k.split('/')[1] === blobId)) {
+      throw new PhotoTransferError('release'); // parts remain
+    }
+    this.reserved.delete(blobId);
+  }
+
+  async removeSpace(spaceId: string): Promise<boolean> {
+    for (const key of [...this.parts.keys()]) {
+      if (key.startsWith(`${spaceId}/`)) this.parts.delete(key);
+    }
+    return true;
   }
 
   async usage(): Promise<{ used: number; limit: number }> {
