@@ -255,7 +255,7 @@ describe.skipIf(!live)('sync over a live local Supabase', () => {
     const space = psql(`insert into spaces default values returning id;`).split('\n')[0];
     const row = (id: string, ms: number) =>
       `insert into records (space_id, record_type, record_id, version, epoch, nonce, ciphertext)
-       values ('${space}', 'milestone', '${id}', '${String(ms).padStart(13, '0')}-000000-0000abcd', 1, '\\x00', '\\x00');`;
+       values ('${space}', 'milestone', '${id}', '${String(ms).padStart(13, '0')}-000000-0000abcd', 1, decode(repeat('00', 24), 'hex'), '\\x00');`;
     const slow = '55555555-5555-4555-8555-555555555555';
     const fast = '66666666-6666-4666-8666-666666666666';
 

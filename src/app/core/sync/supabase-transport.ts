@@ -57,7 +57,7 @@ export class SupabaseTransport implements SyncTransport {
     const { error } = await this.client
       .from('records')
       .upsert(rows, { onConflict: 'space_id,record_type,record_id' });
-    if (error) throw new SyncTransportError('push', error.code ?? 'unknown');
+    if (error) throw new SyncTransportError('push', serverCode(error));
   }
 
   async versions(
@@ -73,7 +73,7 @@ export class SupabaseTransport implements SyncTransport {
         .select('record_type,record_id,version')
         .eq('space_id', spaceId)
         .in('record_id', ids.slice(i, i + VERSIONS_CHUNK));
-      if (error) throw new SyncTransportError('versions', error.code ?? 'unknown');
+      if (error) throw new SyncTransportError('versions', serverCode(error));
       for (const row of (data ?? []) as Pick<
         RecordRow,
         'record_type' | 'record_id' | 'version'
@@ -93,7 +93,7 @@ export class SupabaseTransport implements SyncTransport {
       .gt('seq', after)
       .order('seq', { ascending: true })
       .limit(limit);
-    if (error) throw new SyncTransportError('pull', error.code ?? 'unknown');
+    if (error) throw new SyncTransportError('pull', serverCode(error));
     return ((data ?? []) as RecordRow[]).map((row) => ({
       recordType: row.record_type,
       recordId: row.record_id,
@@ -114,4 +114,12 @@ function bytesOrEmpty(value: unknown): Uint8Array {
   } catch {
     return new Uint8Array(0);
   }
+}
+
+/** The server's limits (§19) by name; otherwise its error code. Never the message itself. */
+function serverCode(error: { code?: string; message?: string }): string {
+  const message = error.message ?? '';
+  if (/rate limited/.test(message)) return 'rateLimited';
+  if (/space full|record too large/.test(message)) return 'spaceFull';
+  return error.code ?? 'unknown';
 }

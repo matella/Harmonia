@@ -291,7 +291,7 @@ The privacy policy must describe the right-hand column. It is not accurate to sa
 - **Someone else's recovery record:** the server keeps a person's `recovery` record only from a device of that person (`20261023000800_own_recovery_records.sql`). Without that, another member could put their own public key in it: rotations would seal to a key the server refuses, and that person's recovery would quietly stop covering new epochs. A device also compares the record with the hash the server seals to, and asks for a new key when they differ.
 - **A hostile server holding back newer epochs from a recovering device:** a recovering device knows the current epoch only from the server. A hostile server could stop at an older epoch, hide the records after it (including a later removal), and so get the recovering device to write under a key a removed device still holds. This is the same limit as withholding a removal record (below); it ends as soon as any other device seals the current key to the new device. Closing it would mean holding back the recovering device's uploads until another device has confirmed the current key, which a person with no other device in the space could then never get.
 - **Recovery with a hostile server and a removed device:** a recovering device trusts the newest key only if a device listed under the older keys, and not removed, signed it. Older keys are trusted because they open (the server never sees a recovery public key), so a removed device that read the public key could, with the server, slip a fake older key and fake older records into what the new device sees. That falls under faking the history the new device sees, which is out of scope; it can't read anything written after the removal.
-- **Person rows on the server:** the policy `persons_member_all` lets members change person rows directly. Nothing needs that; narrow it when touching it next.
+- **Person rows on the server:** members can only read them now (§19). Before, they could change or delete them directly, and deleting one cascaded to that person's recovery key entry.
 - **Hostile server colluding with a removed device:** a removal is written under the old key before the rotation, and devices read it before adopting a new key, so a key signed by the removed device is refused. Repair skips devices the server reports as removed. What remains is a server that withholds the removal record entirely while serving a key the removed device signed. That is out of scope: preventing it would need every rotation to be confirmed by a device the others already trust, without the server in between.
 
 ## 12. Obligations and costs
@@ -902,4 +902,33 @@ Built as revised in §8 (key pair, separate `recovery` record, hashed lookups, s
 **Not verified:** a purge arriving on a device (covered by sql.js and live tests); the cleanup script on a hosted project.
 
 **Noticed (not new), fixed the same day:** while an invite was waiting, the sharing screen showed only the invite, with no way to *Sync now* or *Leave* until it was answered or expired. A waiting invite is now a section at the top of the shared view (code, *Copy code*, *Send code*, *Cancel invite*), with *Sync now*, the devices, the recovery key and *Leave* below it; the safety-code step still takes the whole screen once a device claims the invite. Page spec, and checked on the emulator.
+
+## 19. Hardening (2026-10-24)
+
+Phase 6's server-side part, done before real users (`20261024000200_limits.sql`, `20261024000300_tighten.sql`).
+
+**Rate limits**, per device and hour, on the calls that create something: spaces (10), invites (30), claims (30), key changes (60), photo reservations (3,000) and record writes (20,000).
+- A call refused by its limit leaves its counter as it was, so the device stays refused until the hour turns.
+- The originals are kept under other names, out of members' reach, behind functions with the same names and arguments.
+- Calls that fail anyway aren't counted (a counter bumped by a failing call is rolled back with it): an unknown recovery key, an unknown invite. What protects those is that they can't be guessed (a 128-bit lookup, a random invite ID). Nothing here limits how often a signed-in device calls them: Supabase Auth's per-address limits (`config.toml`) cover sign-ins only. A hard bound on load belongs in the API gateway or in attestation (still open).
+
+**Size caps:**
+- An encrypted record is at most 64 KiB, with a 24-byte nonce.
+- A space's records total at most 200 MiB (a setting next to the photo limit), kept as a running count: purges and smaller versions free room. Before this, records had no cap at all, so a member could have stored any amount outside the photo limit.
+- A full space can always free itself: purges and moves to the trash (a tombstone grows by at most 1 KiB) skip the total check, and the device sends purges in a batch of their own first, since one refused row fails a whole batch. A push is an upsert, so the check counts the stored version of a record as replaced (found in review: the first version charged the full size, which would have refused almost every upload in a full space).
+- A record over 64 KiB never leaves the device (it would fail every upload); the editors' limits stay far below that.
+- An invite bundle is at most 16 KiB.
+- The app says in words when a limit is hit ("too often in the last hour", "your shared space is full").
+
+**Security review** (automated checks on the live database, then by hand):
+- **Fixed, real:** `store_recovery_envelopes`, an internal helper that trusts its `space` and `caller` arguments, was callable by any signed-in device. Its migration revoked it only from PUBLIC, but Supabase also grants signed-in users every function directly. Anyone knowing a space's and a person's IDs (an ex-member, a removed device) could have filled that person's recovery envelope slots with junk, so the real envelopes for those epochs would be skipped and recovery would break. The PGlite shim now grants functions the way Supabase does, so a test catches this kind of mistake.
+- **Fixed:** members could insert, change or delete person rows directly, and a delete cascaded to the person's recovery key entry. Members can only read them now; the functions that create persons don't need more.
+- **Fixed, defense in depth:** the signed-out role held every table and function privilege (Supabase's defaults plus Postgres's grant to PUBLIC). Nothing was open (every function refuses a caller that isn't a registered device, and no policy lets it read a row), but it now has no privileges at all, for later objects too.
+- **Checked, fine:** every function that bypasses row-level security sets its search path; every table has row-level security; signed-in callers can only run the functions the app calls, plus the read-only helpers the policies use.
+
+**Tests:** PGlite (`limits.test.ts`): the 31st invite refused until the hour turns; an oversized bundle; counters and originals out of reach; record size, nonce and the space's total, including room freed by smaller versions and purges; person rows read-only; the helper not callable; the signed-out role refused. Live: the whole suite (76) on the local stack.
+
+**Operator, on the hosted project:** before applying `20261024000300_tighten.sql`, check that no extension keeps functions in the `public` schema (they would lose the PUBLIC grant that defaults or policies may rely on).
+
+**Still open for phase 6:** app attestation (Play Integrity / App Attest) to keep non-Harmonia clients out; the privacy policy, store forms and link domain (need the product owner).
 

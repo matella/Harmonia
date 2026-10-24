@@ -428,6 +428,8 @@ export const EN = {
   'sharing.error.newKey': 'This device can’t open the new sharing key yet. Try again in a moment.',
   'sharing.error.removalPending': 'The device is marked removed, but the new key couldn’t be set up yet. Harmonia tries again each time it syncs.',
   'sharing.error.leavePending': 'Not every photo could be deleted from the sharing server yet. Harmonia carries on leaving at the next sync.',
+  'sharing.error.rateLimited': 'This device has done that too often in the last hour. Try again later.',
+  'sharing.error.spaceFull': 'Your shared space is full: some changes can’t be shared. Deleting memories for good from Recently deleted makes room.',
   'sharing.error.keyChangePending': 'A new recovery key is still being saved. Try again after the next sync.',
   'sharing.addDevice': 'Add one of my devices',
   'sharing.addDeviceCodeHint': 'Enter this code on your other device, under Settings › Share with your partner › Join with a code. It works once, for 24 hours.',

@@ -14,6 +14,8 @@ grant usage on schema public to anon, authenticated;
 -- Supabase grants table privileges to these roles by default; RLS is what restricts them.
 alter default privileges in schema public grant select, insert, update, delete on tables to anon, authenticated;
 alter default privileges in schema public grant usage, select on sequences to anon, authenticated;
+-- And it grants every function to them too: a `revoke ... from public` alone leaves it callable.
+alter default privileges in schema public grant execute on functions to anon, authenticated;
 -- Supabase Storage keeps one row per object in storage.objects, under row-level security;
 -- only the columns the migrations use are here. The service itself (file size limits,
 -- the bytes) is exercised in the live tests.

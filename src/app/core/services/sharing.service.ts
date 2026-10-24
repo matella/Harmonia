@@ -72,6 +72,7 @@ export class SharingService {
   private readonly queue = new SerialQueue();
   private autoTimer: ReturnType<typeof setTimeout> | null = null;
   private photosFullShown = false;
+  private spaceFullShown = false;
 
   readonly available = this.server !== null;
   readonly status = signal<SharingView>('unknown');
@@ -105,8 +106,13 @@ export class SharingService {
       const full = report !== 'ended' && report.photos?.storageFull === true;
       if (full && !this.photosFullShown) void this.notice.show(this.t.t('sharing.photosFull'));
       this.photosFullShown = full;
-    } catch {
-      // Retried on the next start, resume or change.
+      this.spaceFullShown = false;
+    } catch (error) {
+      // Retried on the next start, resume or change. A full space is said once (§19).
+      if ((error as { code?: unknown } | null)?.code === 'spaceFull' && !this.spaceFullShown) {
+        this.spaceFullShown = true;
+        void this.notice.show(this.t.t('sharing.error.spaceFull'));
+      }
     }
   }
 

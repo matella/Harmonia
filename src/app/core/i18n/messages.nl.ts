@@ -430,6 +430,8 @@ export const NL: EnCatalog = {
   'sharing.error.newKey': 'Dit toestel kan de nieuwe deelsleutel nog niet openen. Probeer het zo meteen opnieuw.',
   'sharing.error.removalPending': 'Het toestel is als verwijderd gemarkeerd, maar de nieuwe sleutel kon nog niet worden ingesteld. Harmonia probeert het opnieuw bij elke synchronisatie.',
   'sharing.error.leavePending': 'Nog niet alle foto’s konden van de deelserver worden verwijderd. Harmonia gaat bij de volgende synchronisatie verder met vertrekken.',
+  'sharing.error.rateLimited': 'Dit toestel heeft dat het afgelopen uur te vaak gedaan. Probeer het later opnieuw.',
+  'sharing.error.spaceFull': 'Je gedeelde ruimte is vol: sommige wijzigingen kunnen niet worden gedeeld. Herinneringen definitief verwijderen via Recent verwijderd maakt ruimte vrij.',
   'sharing.error.keyChangePending': 'Er wordt nog een nieuwe herstelsleutel opgeslagen. Probeer het opnieuw na de volgende synchronisatie.',
   'sharing.addDevice': 'Een van mijn toestellen toevoegen',
   'sharing.addDeviceCodeHint': 'Voer deze code in op je andere toestel, via Instellingen › Delen met je partner › Meedoen met een code. Hij werkt één keer, 24 uur lang.',

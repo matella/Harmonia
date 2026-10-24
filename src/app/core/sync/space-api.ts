@@ -17,6 +17,8 @@ export type SpaceErrorCode =
   | 'targetGone'
   | 'staleRecipients'
   | 'unknownRecoveryKey'
+  /** Too many of this call from this device this hour (§19). */
+  | 'rateLimited'
   | 'network'
   | 'server';
 
@@ -129,6 +131,7 @@ const MESSAGES: [RegExp, SpaceErrorCode][] = [
   [/target not in space/, 'targetGone'],
   [/unknown recipient/, 'staleRecipients'],
   [/unknown recovery key/, 'unknownRecoveryKey'],
+  [/rate limited/, 'rateLimited'],
   [/not allowed|not a member|unknown device/, 'notAllowed'],
 ];
 

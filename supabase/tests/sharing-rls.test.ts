@@ -186,8 +186,9 @@ describe('sharing schema (PGlite + Supabase shim)', () => {
   it('gives the anonymous role nothing', async () => {
     await db.exec(`set role anon;`);
     try {
-      expect(await q(`select * from devices`)).toHaveLength(0);
-      expect(await q(`select * from records`)).toHaveLength(0);
+      // Not even an empty answer: no privileges at all (§19).
+      await expect(q(`select * from devices`)).rejects.toThrow(/permission denied/);
+      await expect(q(`select * from records`)).rejects.toThrow(/permission denied/);
     } finally {
       await db.exec(`reset role;`);
     }

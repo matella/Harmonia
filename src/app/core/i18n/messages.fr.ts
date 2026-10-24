@@ -431,6 +431,8 @@ export const FR: EnCatalog = {
   'sharing.error.newKey': 'Cet appareil ne peut pas encore ouvrir la nouvelle clé de partage. Réessayez dans un instant.',
   'sharing.error.removalPending': 'L’appareil est marqué comme retiré, mais la nouvelle clé n’a pas encore pu être mise en place. Harmonia réessaie à chaque synchronisation.',
   'sharing.error.leavePending': 'Toutes les photos n’ont pas encore pu être supprimées du serveur de partage. Harmonia poursuit le départ à la prochaine synchronisation.',
+  'sharing.error.rateLimited': 'Cet appareil l’a fait trop souvent au cours de la dernière heure. Réessayez plus tard.',
+  'sharing.error.spaceFull': 'Votre espace partagé est plein : certaines modifications ne peuvent pas être partagées. Supprimer définitivement des souvenirs depuis Récemment supprimés libère de la place.',
   'sharing.error.keyChangePending': 'Une nouvelle clé de récupération est encore en cours d’enregistrement. Réessayez après la prochaine synchronisation.',
   'sharing.addDevice': 'Ajouter un de mes appareils',
   'sharing.addDeviceCodeHint': 'Saisissez ce code sur votre autre appareil, dans Réglages › Partager avec votre partenaire › Rejoindre avec un code. Il fonctionne une seule fois, pendant 24 heures.',

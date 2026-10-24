@@ -214,6 +214,27 @@ describe('memories between two devices', () => {
     expect(server.all().map((r) => r.recordType)).toEqual(['purge']);
   });
 
+  it('sends purges in a batch of their own, ahead of everything else', async () => {
+    const server = new InMemoryTransport();
+    const batches: string[][] = [];
+    const push = server.push.bind(server);
+    server.push = async (spaceId, records) => {
+      batches.push(records.map((r) => r.recordType));
+      return push(spaceId, records);
+    };
+    const a = await device(server);
+    const gone = await a.memories.create(memory(), []);
+    await a.store.joinSpace(SPACE, 1);
+    await a.engine.sync();
+    await a.memories.delete(gone.id);
+    await a.engine.sync();
+    await a.trash.deleteForever('memory', gone.id);
+    await a.memories.create(memory({ title: 'New' }), []);
+    batches.length = 0;
+    await a.engine.sync();
+    expect(batches).toEqual([['purge'], ['memory']]);
+  });
+
   it('refuses memory and photo records the editors would refuse', async () => {
     const server = new InMemoryTransport();
     const a = await device(server);

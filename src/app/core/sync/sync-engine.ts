@@ -74,6 +74,9 @@ const SERVER_RECORD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 // 5: purges (phase 5, slice 3)
 export const SYNC_CAPABILITY = 5;
 
+/** The server's cap on one encrypted record (§19). */
+const MAX_RECORD_CIPHERTEXT = 65536;
+
 /**
  * Pull, push, pull (docs/PARTNER_SYNC.md §5). Framework-free: the app wires it to the
  * Supabase transport and runs it on start, on resume and after local changes.
@@ -201,48 +204,61 @@ export class SyncEngine {
     const key = this.keyring.key(epoch);
     if (!key) throw new Error('No space key for the current epoch.');
 
-    const entries = (await this.store.outbox()).filter((e) => !types || types.includes(e.type));
-    for (let i = 0; i < entries.length; i += this.pageSize) {
-      const batch: { record: LocalRecord; wire: WireRecord }[] = [];
-      for (const entry of entries.slice(i, i + this.pageSize)) {
-        const record = await this.store.read(entry.type, entry.id);
-        if (!record) {
-          // Purged for good before it was sent; nothing left to share.
-          await this.store.acknowledge(entry);
-          continue;
+    const all = (await this.store.outbox()).filter((e) => !types || types.includes(e.type));
+    // Purges first, on their own: they free room, so a record refused by a full space
+    // (one bad row fails a whole batch) must never hold them back (§19).
+    const purges = all.filter((e) => e.type === 'purge');
+    const rest = all.filter((e) => e.type !== 'purge');
+    for (const entries of [purges, rest])
+      for (let i = 0; i < entries.length; i += this.pageSize) {
+        const batch: { record: LocalRecord; wire: WireRecord }[] = [];
+        for (const entry of entries.slice(i, i + this.pageSize)) {
+          const record = await this.store.read(entry.type, entry.id);
+          if (!record) {
+            // Purged for good before it was sent; nothing left to share.
+            await this.store.acknowledge(entry);
+            continue;
+          }
+          if (!SERVER_RECORD_ID.test(record.id) || !HLC_PATTERN.test(record.version)) {
+            // The server would refuse the whole batch for one such record; keep it local.
+            await this.store.acknowledge(entry);
+            report.unsendable++;
+            continue;
+          }
+          const wire = this.seal(spaceId, epoch, key, record);
+          if (wire.ciphertext.length > MAX_RECORD_CIPHERTEXT) {
+            // The server refuses records over 64 KiB, and with it the whole batch; the
+            // editors' limits stay far below that, so this is a record no app should make.
+            await this.store.acknowledge(entry);
+            report.unsendable++;
+            continue;
+          }
+          batch.push({ record, wire });
         }
-        if (!SERVER_RECORD_ID.test(record.id) || !HLC_PATTERN.test(record.version)) {
-          // The server would refuse the whole batch for one such record; keep it local.
-          await this.store.acknowledge(entry);
-          report.unsendable++;
-          continue;
-        }
-        batch.push({ record, wire: this.seal(spaceId, epoch, key, record) });
-      }
-      if (batch.length === 0) continue;
+        if (batch.length === 0) continue;
 
-      await this.transport.push(
-        spaceId,
-        batch.map((b) => b.wire),
-      );
-      // The server skips stale writes silently, so confirm what it now holds.
-      const stored = await this.transport.versions(
-        spaceId,
-        batch.map((b) => ({ recordType: b.wire.recordType, recordId: b.wire.recordId })),
-      );
-      for (const { record, wire } of batch) {
-        const server = stored.get(recordKey(wire.recordType, wire.recordId));
-        const local = { type: record.type, id: localOutboxId(record), version: record.version };
-        if (server === record.version) {
-          await this.store.acknowledge(local);
-          report.pushed++;
-        } else if (server !== undefined && compareHlc(server, record.version) > 0) {
-          // Lost to a newer change; the next pull applies it and clears this entry.
-          report.superseded++;
+        await this.transport.push(
+          spaceId,
+          batch.map((b) => b.wire),
+        );
+        // The server skips stale writes silently, so confirm what it now holds.
+        const stored = await this.transport.versions(
+          spaceId,
+          batch.map((b) => ({ recordType: b.wire.recordType, recordId: b.wire.recordId })),
+        );
+        for (const { record, wire } of batch) {
+          const server = stored.get(recordKey(wire.recordType, wire.recordId));
+          const local = { type: record.type, id: localOutboxId(record), version: record.version };
+          if (server === record.version) {
+            await this.store.acknowledge(local);
+            report.pushed++;
+          } else if (server !== undefined && compareHlc(server, record.version) > 0) {
+            // Lost to a newer change; the next pull applies it and clears this entry.
+            report.superseded++;
+          }
+          // Otherwise the write did not land: the entry stays for the next sync.
         }
-        // Otherwise the write did not land: the entry stays for the next sync.
       }
-    }
   }
 
   private seal(spaceId: string, epoch: number, key: Uint8Array, record: LocalRecord): WireRecord {

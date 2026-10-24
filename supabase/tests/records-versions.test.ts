@@ -14,7 +14,7 @@ const upsert = (rows: { id: string; version: string }[]) =>
   server.as(user, () =>
     server.q(
       `insert into records (space_id, record_type, record_id, version, epoch, nonce, ciphertext)
-       select $1, 'milestone', r.id::uuid, r.version, 1, '\\x00', '\\x00'
+       select $1, 'milestone', r.id::uuid, r.version, 1, decode(repeat('00', 24), 'hex'), '\\x00'
        from jsonb_to_recordset($2::jsonb) as r(id text, version text)
        on conflict (space_id, record_type, record_id) do update set version = excluded.version`,
       [space, JSON.stringify(rows)],

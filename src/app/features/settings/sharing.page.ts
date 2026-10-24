@@ -1336,6 +1336,10 @@ export function errorKey(error: unknown): MessageKey {
       return 'sharing.error.removalPending';
     case 'leavePending':
       return 'sharing.error.leavePending';
+    case 'rateLimited':
+      return 'sharing.error.rateLimited';
+    case 'spaceFull':
+      return 'sharing.error.spaceFull';
     case 'keyChangePending':
       return 'sharing.error.keyChangePending';
     case 'inviteMismatch':
