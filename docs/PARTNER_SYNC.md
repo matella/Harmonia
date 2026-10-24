@@ -901,5 +901,5 @@ Built as revised in §8 (key pair, separate `recovery` record, hashed lookups, s
 
 **Not verified:** a purge arriving on a device (covered by sql.js and live tests); the cleanup script on a hosted project.
 
-**Noticed (not new):** while an invite is waiting, the sharing screen shows only the invite, with no way to *Sync now* or *Leave* until it is answered or expires.
+**Noticed (not new), fixed the same day:** while an invite was waiting, the sharing screen showed only the invite, with no way to *Sync now* or *Leave* until it was answered or expired. A waiting invite is now a section at the top of the shared view (code, *Copy code*, *Send code*, *Cancel invite*), with *Sync now*, the devices, the recovery key and *Leave* below it; the safety-code step still takes the whole screen once a device claims the invite. Page spec, and checked on the emulator.
 

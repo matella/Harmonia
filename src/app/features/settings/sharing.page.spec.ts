@@ -48,6 +48,10 @@ class FakeSharing {
   async approveInvite(): Promise<void> {
     this.calls.push('approve');
   }
+  async declineInvite(): Promise<void> {
+    this.calls.push('decline');
+    this.inviteCode = null;
+  }
   async chooseStart(choice: 'space' | 'mine'): Promise<JoinProgress> {
     this.calls.push(`choose:${choice}`);
     return { state: 'joined' };
@@ -241,6 +245,30 @@ describe('SharingPage', () => {
     // A partner who joined makes their own recovery key next (§8).
     expect(fake.calls).toEqual(['choose:mine', 'newKey']);
     expect(el.textContent).toContain('Your recovery key');
+    fixture.destroy();
+  });
+
+  it('keeps sync, devices and Leave at hand while an invite waits, and can cancel it', async () => {
+    fake.view = 'member';
+    fake.inviteCode = 'H1.code';
+    fake.devices = [{ id: 'me', platform: 'android', thisDevice: true }];
+    const { fixture, el } = await render();
+    await settle(fixture);
+    expect(el.textContent).toContain('Your invite code');
+    expect(el.querySelector('.code')?.textContent).toBe('H1.code');
+    for (const label of ['Sync now', 'Leave', 'Cancel invite']) {
+      expect(
+        buttons(el).some((b) => b.includes(label)),
+        label,
+      ).toBe(true);
+    }
+    expect(el.textContent).toContain('This device');
+    await click(fixture, 'Sync now');
+    expect(fake.calls).toContain('sync');
+    await click(fixture, 'Cancel invite');
+    expect(fake.calls).toContain('decline');
+    expect(el.textContent).not.toContain('Your invite code');
+    expect(el.textContent).toContain('Leave the shared space');
     fixture.destroy();
   });
 
