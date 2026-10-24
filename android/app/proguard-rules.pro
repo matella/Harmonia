@@ -19,3 +19,7 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# ML Kit is excluded from the build (docs/PARTNER_SYNC.md §20): the invite scanner runs on
+# ZXing, and the barcode plugin's ML Kit path is never called.
+-dontwarn com.google.mlkit.**
