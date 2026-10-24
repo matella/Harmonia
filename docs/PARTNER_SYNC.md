@@ -878,6 +878,8 @@ Built as revised in §8 (key pair, separate `recovery` record, hashed lookups, s
 - Leaving is recorded first, so an interrupted leave is finished by the next sync (nothing else syncs meanwhile), and the space is dissolved only once Storage is empty for it.
 - What a crash still leaves behind (photos of a space that is gone or no longer reserved, and reservations that never got a part) is cleaned by **`scripts/cleanup-photo-storage.mjs`**. The operator runs it with the service role; `orphan_photo_parts()` and `release_stale_reservations()` are service role only. **On the hosted project it must run on a schedule**, for example hourly.
 
+**Security review after commit** (`20261024000100_photo_locks.sql`): a part being stored and its reservation being released could interleave, leaving a part counted against nothing. Both now lock the reservation row (the part's size check for share, the release for update), so whichever comes second sees the other. Live test: a part insert held open makes the release wait, then refuse.
+
 **Also fixed:** the received-photo check reads every kind of JPEG frame header the way a decoder does. It refuses a file whose first frame header is a kind we don't make, or that has two of them (found by the automated security review).
 
 **Tests:**

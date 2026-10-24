@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -270,6 +270,37 @@ describe.skipIf(!live)('photo storage on a live local Supabase', () => {
     expect(await transport.removeSpace(space)).toBe(true);
     expect(psql(`select count(*) from storage.objects where name like '${space}/%'`)).toBe('0');
   }, 120000);
+
+  it('never frees a reservation while one of its parts is being stored', async () => {
+    const photo = crypto.randomUUID();
+    expect((await member.rpc('reserve_blob', { blob: photo, size: 1 })).error).toBeNull();
+    // Storage's final insert of a part, held open for a moment (as on a slow upload).
+    const slow = spawn('docker', [
+      'exec',
+      '-i',
+      'supabase_db_Harmonia',
+      'psql',
+      '-U',
+      'postgres',
+      '-v',
+      'ON_ERROR_STOP=1',
+    ]);
+    const done = new Promise((resolve) => slow.on('close', resolve));
+    slow.stdin.end(`begin;
+      insert into storage.objects (bucket_id, name, metadata)
+        values ('photos', '${space}/${photo}/0', '{"size": 18}');
+      select pg_sleep(2);
+      commit;`);
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const released = await member.rpc('release_blob', { blob: photo });
+    await done;
+    // It waited for the part, then saw it: the reservation stays.
+    expect(released.error?.message).toMatch(/parts remain/);
+    expect(psql(`select count(*) from blobs where id = '${photo}'`)).toBe('1');
+    expect(psql(`select count(*) from storage.objects where name = '${space}/${photo}/0'`)).toBe(
+      '1',
+    );
+  });
 
   it('lets the operator clean up what a crash left behind', async () => {
     // A space left while its photos were still there (as after a crash halfway).
