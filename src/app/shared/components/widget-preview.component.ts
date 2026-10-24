@@ -35,7 +35,7 @@ import { EmblemComponent } from './emblem.component';
         @if (s.state === 'ready') {
           <div class="col">
             @if (s.privacy !== 'minimal') {
-              <span class="brand">{{ s.displayName ?? t.t('app.name') }}</span>
+              <span class="brand"><hm-emblem [size]="16" />{{ s.displayName ?? t.t('app.name') }}</span>
             }
             <span class="big hm-num">{{ primary() }}</span>
             <span class="small">{{ secondary() }}</span>
@@ -46,8 +46,6 @@ import { EmblemComponent } from './emblem.component';
               <span class="mid">{{ t.formatDate(n.date, 'monthDay') }}</span>
               <span class="small">{{ t.plural('widgets.nextIn', n.days) }}</span>
             </div>
-          } @else if (s.privacy !== 'minimal') {
-            <div class="col col--next"><hm-emblem [size]="34" /></div>
           }
         } @else {
           <div class="col"><hm-emblem [size]="28" /><span class="small">{{ t.t('widgets.placeholderTitle') }}</span></div>
@@ -97,7 +95,11 @@ import { EmblemComponent } from './emblem.component';
       padding-inline-start: var(--hm-space-3);
       align-items: flex-start;
     }
+    /* Like the native widget: the mark beside the name, and nothing on the right without a next date. */
     .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       font-family: var(--hm-font-display);
       font-size: var(--hm-text-sm);
       color: var(--hm-ink-muted);
