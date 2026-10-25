@@ -180,3 +180,28 @@
   flex-wrap: wrap;
   gap: var(--hm-space-2);
 }
+
+.recap-link {
+  display: flex;
+  align-items: center;
+  gap: var(--hm-space-3);
+  margin-top: var(--hm-space-6);
+  color: inherit;
+  text-decoration: none;
+}
+
+.recap-link__text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.recap-link__title {
+  font-family: var(--hm-font-display);
+  font-size: var(--hm-text-lg);
+}
+
+.recap-link__body {
+  color: var(--hm-ink-muted);
+  font-size: var(--hm-text-sm);
+}

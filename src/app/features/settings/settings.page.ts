@@ -22,6 +22,7 @@ const SHARING_LINK: SettingsLink = {
 };
 
 const LINKS: SettingsLink[] = [
+  { route: '/recap', icon: 'sparkles-outline', title: 'settings.recap', hint: 'settings.recapHint' },
   { route: '/settings/appearance', icon: 'color-palette-outline', title: 'settings.appearance', hint: 'settings.appearanceHint' },
   { route: '/settings/reminders', icon: 'notifications-outline', title: 'settings.reminders', hint: 'settings.remindersHint' },
   { route: '/settings/widgets', icon: 'grid-outline', title: 'settings.widgets', hint: 'settings.widgetsHint' },

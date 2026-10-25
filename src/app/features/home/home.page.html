@@ -114,6 +114,17 @@
         </section>
       }
 
+      @if (store.recapSeason(); as recapYear) {
+        <a class="hm-card recap-link" routerLink="/recap">
+          <ion-icon name="sparkles-outline" aria-hidden="true" />
+          <span class="recap-link__text">
+            <span class="recap-link__title">{{ 'recap.cardTitle' | t: { year: recapYear } }}</span>
+            <span class="recap-link__body">{{ 'recap.cardBody' | t }}</span>
+          </span>
+          <ion-icon name="chevron-forward" aria-hidden="true" />
+        </a>
+      }
+
       @if (store.backupDue() && !usage.showPrompt()) {
         <section class="hm-card backup" aria-labelledby="backup-title">
           <h2 id="backup-title" class="backup__title">{{ 'backup.title' | t }}</h2>

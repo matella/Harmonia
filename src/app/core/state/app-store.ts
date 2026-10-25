@@ -3,6 +3,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { fixedClock } from '../domain/clock';
 import { todayIn } from '../domain/local-date';
 import { backupDue } from '../domain/backup-reminder';
+import { recapSeason } from '../domain/year-recap';
 import { memoriesOnThisDay } from '../domain/memory-anniversaries';
 import { sortedPast, sortedUpcoming } from '../domain/milestone-occurrence';
 import {
@@ -77,6 +78,8 @@ export class AppStore {
       memories: this.memories(),
     });
   });
+  /** The year Home points to "Your year together" for: December, and January for the year before. */
+  readonly recapSeason = computed(() => recapSeason(this.today()));
   /** Memories from this day and month in earlier years, the oldest first. */
   readonly memoriesToday = computed(() => memoriesOnThisDay(this.memories(), this.today(), this.settings().leapDayPolicy));
   readonly nextUpcoming = computed(() => this.upcoming()[0] ?? null);

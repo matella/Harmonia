@@ -54,6 +54,7 @@ export const routes: Routes = [
         path: 'memory/:id',
         loadComponent: () => import('./features/memories/memory-detail.page').then((m) => m.MemoryDetailPage),
       },
+      { path: 'recap', loadComponent: () => import('./features/recap/recap.page').then((m) => m.RecapPage) },
       { path: 'settings', loadComponent: () => import('./features/settings/settings.page').then((m) => m.SettingsPage) },
       {
         path: 'settings/profile',
