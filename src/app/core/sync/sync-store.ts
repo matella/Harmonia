@@ -29,6 +29,7 @@ export const PHASE2_TYPES: readonly SyncedRecordType[] = [
   'memory',
   'memory_media',
   'purge',
+  'nudge',
 ];
 
 /**
@@ -39,6 +40,18 @@ export const PHASE2_TYPES: readonly SyncedRecordType[] = [
 const QUEUED_AT_CAPABILITY: Readonly<Record<number, readonly SyncedRecordType[]>> = {
   4: ['memory', 'memory_media'],
 };
+
+/** The least time between two nudges from one person (the server also limits them per hour). */
+export const NUDGE_MIN_GAP_MS = 60_000;
+
+export interface NudgeState {
+  /** When this person last sent one. */
+  lastSent: string | null;
+  /** When the other person last sent one. */
+  received: string | null;
+  /** The other person's latest has not been shown on this device yet. */
+  unseen: boolean;
+}
 
 /** A device of the space and its public keys (base64), from the end-to-end device list. */
 export interface SpaceDevice {
@@ -389,6 +402,60 @@ export class SyncStore {
     });
   }
 
+  // -------------------------------------------------------------------------------
+  // Thinking of you (PARTNER_SYNC §22)
+
+  /** Sends one: this person's row is overwritten and goes up with the next sync. */
+  async sendNudge(): Promise<'sent' | 'tooSoon' | 'noSelf'> {
+    return this.db.transaction(async (tx) => {
+      const self = await this.journal.selfPersonId(tx);
+      if (!self) return 'noSelf';
+      const now = this.clock.now();
+      const last = (
+        await tx.query<{ sent_at: string }>('SELECT sent_at FROM nudges WHERE id = ?', [self])
+      )[0]?.sent_at;
+      if (last && now.epochMilliseconds - Date.parse(last) < NUDGE_MIN_GAP_MS) return 'tooSoon';
+      const version = await this.journal.stamp(tx);
+      const at = now.toString();
+      await tx.run(
+        `INSERT INTO nudges (id, sent_at, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET sent_at = excluded.sent_at, version = excluded.version,
+           updated_at = excluded.updated_at`,
+        [self, at, version, at, at],
+      );
+      await this.journal.changed(tx, 'nudge', self, version);
+      return 'sent';
+    });
+  }
+
+  /** The newest nudge from the other person, and the one this person last sent. */
+  async nudgeState(): Promise<NudgeState> {
+    const rows = await this.db.query<{
+      id: string;
+      sent_at: string;
+      seen_sent_at: string | null;
+      is_self: number;
+    }>(
+      `SELECT n.id, n.sent_at, n.seen_sent_at, COALESCE(p.is_self, 0) AS is_self
+       FROM nudges n LEFT JOIN persons p ON p.id = n.id ORDER BY n.sent_at DESC`,
+    );
+    const mine = rows.find((r) => r.is_self === 1)?.sent_at ?? null;
+    const theirs = rows.find((r) => r.is_self !== 1);
+    return {
+      lastSent: mine,
+      received: theirs ? theirs.sent_at : null,
+      unseen: !!theirs && theirs.sent_at > (theirs.seen_sent_at ?? ''),
+    };
+  }
+
+  /** This device has shown the other person's latest nudge (local only, never synced). */
+  async markNudgeSeen(): Promise<void> {
+    await this.db.run(
+      `UPDATE nudges SET seen_sent_at = sent_at
+       WHERE id NOT IN (SELECT id FROM persons WHERE is_self = 1)`,
+    );
+  }
+
   /** Writes a person's recovery public key (base64) when it is set up or replaced (§8). */
   async writeRecovery(personId: string, publicKey: string): Promise<void> {
     await this.db.transaction(async (tx) => {
@@ -627,6 +694,7 @@ export class SyncStore {
       await tx.run('DELETE FROM sync_state');
       await tx.run('DELETE FROM space_devices');
       await tx.run('DELETE FROM space_recovery');
+      await tx.run('DELETE FROM nudges');
       await tx.run('UPDATE persons SET is_placeholder = 1 WHERE is_self = 0');
     });
   }

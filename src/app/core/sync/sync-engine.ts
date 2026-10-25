@@ -71,8 +71,8 @@ const SERVER_RECORD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
  * update instead of staying behind the cursor for good.
  */
 // 2: device records (phase 3); 3: recovery records (phase 4); 4: memories and photos (phase 5);
-// 5: purges (phase 5, slice 3); 6: date and profile photos
-export const SYNC_CAPABILITY = 6;
+// 5: purges (phase 5, slice 3); 6: date and profile photos; 7: nudges
+export const SYNC_CAPABILITY = 7;
 
 /** The server's cap on one encrypted record (§19). */
 const MAX_RECORD_CIPHERTEXT = 65536;

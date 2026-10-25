@@ -34,18 +34,20 @@ export class SyncService {
 
   async reload(): Promise<void> {
     const { profile, milestones, memories, settings } = this.db.repos;
-    const [p, m, r, mem, s] = await Promise.all([
+    const [p, m, r, mem, s, nudge] = await Promise.all([
       profile.get(),
       milestones.list(),
       milestones.listRules(),
       memories.list(),
       settings.load(),
+      this.db.repos.sync.nudgeState(),
     ]);
     this.store.profile.set(p);
     this.store.milestones.set(m);
     this.store.rules.set(r);
     this.store.memories.set(mem);
     this.store.settings.set(s);
+    this.store.nudge.set(nudge);
   }
 
   /**

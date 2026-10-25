@@ -11,7 +11,7 @@ import { RelationshipRepository } from '../persistence/relationship.repository';
 import { SqlJsDriver } from '../persistence/sqljs-driver';
 import { TrashRepository } from '../persistence/trash.repository';
 import { loadSyncCrypto, type SyncCrypto } from './sync-crypto-port';
-import { SyncEngine, type SpaceKeyring, type SyncEngineOptions } from './sync-engine';
+import { SYNC_CAPABILITY, SyncEngine, type SpaceKeyring, type SyncEngineOptions } from './sync-engine';
 import { SyncStore } from './sync-store';
 import { InMemoryTransport, type SyncTransport } from './sync-transport';
 
@@ -178,7 +178,7 @@ describe('memories between two devices', () => {
         .filter((r) => r.recordType === 'memory')
         .map((r) => r.recordId),
     ).toEqual([old.id]);
-    expect((await a.store.state())?.capability).toBe(6);
+    expect((await a.store.state())?.capability).toBe(SYNC_CAPABILITY);
     await a.engine.sync();
     expect(server.all().filter((r) => r.recordType === 'memory')).toHaveLength(1);
   });

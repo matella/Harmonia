@@ -558,4 +558,81 @@ describe('sync engine (two devices, in-memory server)', () => {
     expect(report.rejected).toBe(0);
     expect((await b.store.state())!.cursor).toBe(before);
   });
+  describe('thinking of you', () => {
+    const iso = (ms: number) => new Date(ms).toISOString().replace('.000Z', 'Z');
+
+    /** B needs its own person, as the joiner's device creates one. */
+    async function withBothPeople() {
+      const world = await pair();
+      await world.b.driver.run(
+        `INSERT INTO persons (id, display_name, is_self, is_placeholder, version, created_at, updated_at)
+         VALUES ('5b5b5b5b-5b5b-4b5b-8b5b-5b5b5b5b5b5b', 'Sam', 1, 0, '0000000000001-000000-0000b00b',
+                 '2026-10-22T10:00:00Z', '2026-10-22T10:00:00Z')`,
+      );
+      return world;
+    }
+
+    it('reaches the other person once, and again after each new one', async () => {
+      const { a, b } = await withBothPeople();
+      expect(await a.store.sendNudge()).toBe('sent');
+      await a.engine.sync();
+      await b.engine.sync();
+      const first = await b.store.nudgeState();
+      expect(first).toMatchObject({ unseen: true, lastSent: null });
+      expect(first.received).toBe((await a.store.nudgeState()).lastSent);
+
+      await b.store.markNudgeSeen();
+      expect((await b.store.nudgeState()).unseen).toBe(false);
+      await b.engine.sync(); // nothing new: stays seen
+      expect((await b.store.nudgeState()).unseen).toBe(false);
+
+      a.clock.set(iso(a.clock.now().epochMilliseconds + 120_000));
+      expect(await a.store.sendNudge()).toBe('sent');
+      await a.engine.sync();
+      await b.engine.sync();
+      expect((await b.store.nudgeState()).unseen).toBe(true);
+      // The sender's own device never shows its own nudge as received.
+      expect((await a.store.nudgeState()).unseen).toBe(false);
+    });
+
+    it('holds a second send back for a minute, and sends nothing without a person', async () => {
+      const { a, b } = await pair();
+      expect(await b.store.sendNudge()).toBe('noSelf');
+      expect(await a.store.sendNudge()).toBe('sent');
+      a.clock.set(iso(a.clock.now().epochMilliseconds + 30_000));
+      expect(await a.store.sendNudge()).toBe('tooSoon');
+    });
+
+    it('carries only the time, and refuses one without a valid time', async () => {
+      const { server, a, b } = await withBothPeople();
+      await a.store.sendNudge();
+      await a.engine.sync();
+      const sent = openAll(server).filter((d) => 'sent_at' in d);
+      expect(sent).toHaveLength(1);
+      expect(Object.keys(sent[0]).sort()).toEqual(['sent_at']);
+
+      // One with a time that isn't a time is refused on receipt, like any malformed record.
+      const address = {
+        spaceId: SPACE,
+        recordType: 'nudge',
+        recordId: '9a9a9a9a-9a9a-4a9a-8a9a-9a9a9a9a9a9a',
+        epoch: 1,
+        version: '1792670000000-000000-0000beef',
+        deleted: false,
+      };
+      await server.push(SPACE, [
+        {
+          recordType: 'nudge',
+          recordId: address.recordId,
+          epoch: 1,
+          version: address.version,
+          deleted: false,
+          ...crypto.encryptRecord(spaceKey, address, JSON.stringify({ format: 1, data: { sent_at: 'yesterday' } })),
+        },
+      ]);
+      const report = await b.engine.sync();
+      expect(report.rejected).toBeGreaterThan(0);
+      expect((await b.store.nudgeState()).received).toBe((await a.store.nudgeState()).lastSent);
+    });
+  });
 });

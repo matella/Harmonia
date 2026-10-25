@@ -5,7 +5,7 @@
  * cannot slip into sync by accident.
  */
 export type SyncedRecordType =
-  'profile' | 'person' | 'milestone' | 'memory' | 'memory_media' | 'device' | 'recovery' | 'purge';
+  'profile' | 'person' | 'milestone' | 'memory' | 'memory_media' | 'device' | 'recovery' | 'purge' | 'nudge';
 
 export interface TableSyncSchema {
   table: string;
@@ -102,6 +102,13 @@ export const SYNC_SCHEMA: Readonly<Record<SyncedRecordType, TableSyncSchema>> = 
     table: 'purges',
     shared: ['id', 'record_type'],
     local: ['created_at'],
+    meta: ['version'],
+  },
+  // "Thinking of you" (§22): one row per sender, keyed by their person ID.
+  nudge: {
+    table: 'nudges',
+    shared: ['id', 'sent_at'],
+    local: ['seen_sent_at', 'created_at', 'updated_at'],
     meta: ['version'],
   },
   device: {

@@ -86,6 +86,8 @@ const RULES: Readonly<Partial<Record<SyncedRecordType, (p: Payload) => boolean>>
     (p['sort_order'] as number) >= 0 &&
     blobFields(p),
   recovery: (p) => publicKey(p['public_key']),
+  // "Thinking of you" (§22): just when it was sent.
+  nudge: (p) => typeof p['sent_at'] === 'string' && optionalInstant(p['sent_at']),
   device: (p) =>
     (p['person_id'] === null ||
       (typeof p['person_id'] === 'string' && UUID.test(p['person_id']))) &&

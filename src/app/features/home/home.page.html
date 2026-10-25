@@ -35,6 +35,25 @@
         </p>
       </section>
 
+      @if (nudges.available()) {
+        <section class="hm-card nudge" aria-label="{{ 'nudge.send' | t }}">
+          @if (store.nudge().unseen) {
+            <p class="nudge__text" role="status">
+              <ion-icon name="heart-outline" aria-hidden="true" />
+              {{ (p.displayName ? 'nudge.card' : 'nudge.cardNoName') | t: { name: p.displayName ?? '' } }}
+            </p>
+          }
+          <div class="nudge__actions">
+            <button type="button" class="hm-btn hm-btn--outline" (click)="sendNudge()">
+              <ion-icon name="heart-outline" aria-hidden="true" />{{ (store.nudge().unseen ? 'nudge.sendBack' : 'nudge.send') | t }}
+            </button>
+            @if (store.nudge().unseen) {
+              <button type="button" class="hm-btn hm-btn--quiet" (click)="nudges.markSeen()">{{ 'nudge.dismiss' | t }}</button>
+            }
+          </div>
+        </section>
+      }
+
       <section class="hm-section" aria-labelledby="next-heading">
         <div class="hm-section__head">
           <h2 id="next-heading" class="hm-section__title">{{ 'home.nextMoment' | t }}</h2>

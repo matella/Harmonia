@@ -11,6 +11,7 @@ import { thumbnailSiblings } from './profile.service';
 import { SharingService } from './sharing.service';
 import { SyncService } from './sync.service';
 import { ThemeService } from './theme.service';
+import { NudgeService } from './nudge.service';
 import { TrashService } from './trash.service';
 import { UsageService } from './usage.service';
 
@@ -30,6 +31,7 @@ export class BootstrapService {
   private readonly i18n = inject(I18nService);
   private readonly usage = inject(UsageService);
   private readonly trash = inject(TrashService);
+  private readonly nudges = inject(NudgeService); // announces a received "thinking of you"
   private readonly sharing = inject(SharingService);
 
   constructor() {

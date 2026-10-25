@@ -15,6 +15,7 @@ import { computeRelationshipCounter } from '../domain/relationship-duration';
 import { togetherOptionsFrom, upcomingTogetherMarks, type TogetherMark } from '../domain/together-milestones';
 import type { Temporal } from '../domain/temporal';
 import { CLOCK } from '../services/tokens';
+import type { NudgeState } from '../sync/sync-store';
 
 export type AppStatus = 'loading' | 'ready' | 'error';
 
@@ -36,6 +37,8 @@ export class AppStore {
   readonly failure = signal<StartupFailure | null>(null);
 
   readonly profile = signal<RelationshipProfile | null>(null);
+  /** "Thinking of you" (docs/PARTNER_SYNC.md §22): what was sent and received. */
+  readonly nudge = signal<NudgeState>({ lastSent: null, received: null, unseen: false });
   readonly milestones = signal<Milestone[]>([]);
   readonly rules = signal<ReminderRule[]>([]);
   readonly memories = signal<Memory[]>([]);

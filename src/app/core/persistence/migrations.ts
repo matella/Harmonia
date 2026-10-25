@@ -331,6 +331,22 @@ export const MIGRATIONS: readonly Migration[] = [
       `ALTER TABLE blob_releases ADD COLUMN waits_for TEXT NOT NULL DEFAULT 'purge'`,
     ],
   },
+  {
+    version: 9,
+    name: 'thinking of you (partner sharing)',
+    statements: [
+      // One row per person (the sender), overwritten on each send (PARTNER_SYNC §22).
+      // `seen_sent_at` is this device's own: the last nudge it has shown.
+      `CREATE TABLE nudges (
+        id TEXT PRIMARY KEY,
+        sent_at TEXT NOT NULL,
+        seen_sent_at TEXT,
+        version TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+    ],
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

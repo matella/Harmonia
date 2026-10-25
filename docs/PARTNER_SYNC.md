@@ -277,7 +277,7 @@ If confirmation never happens, the old key keeps working. The old key can open n
 
 | Cannot see | Can see (metadata) |
 |---|---|
-| Names, start date, titles, notes, dates, photos, which reminder settings you use | That a space exists and how many persons and devices it has; device platform; when each device syncs; record counts, types and sizes; blob sizes; IP addresses of requests; invite timing |
+| Names, start date, titles, notes, dates, photos, which reminder settings you use | That a space exists and how many persons and devices it has; device platform; when each device syncs; record counts, types and sizes; blob sizes; IP addresses of requests; invite timing; when a "thinking of you" was sent (§22) |
 
 The privacy policy must describe the right-hand column. It is not accurate to say "the server knows nothing".
 
@@ -960,3 +960,15 @@ First run between **two Android emulators** (API 37.2, both on the local stack t
 - **Operator script:** an 18-byte part left by an earlier live test in a space that no longer exists was removed by `scripts/cleanup-photo-storage.mjs`.
 - **Fixed:** the *Delete forever* dialog said "from this device" while sharing, though it removes the item from both people's devices and the server. While sharing it now says so (EN/FR/NL; page spec).
 - **Not covered here:** airplane mode on the emulator doesn't cut `adb reverse` (it's a loopback connection), so being offline was simulated by removing the route and restarting the app. Two real phones on a real network, iOS, and scanning one phone's QR code with the other's camera are still to do.
+
+## 22. Thinking of you (2026-10-25)
+
+A tap on Home that tells the partner you thought of them. Decided with the product owner: delivered **through the space only** (no push notification), so nothing new goes to Google or Apple. Push may follow later if wanted; it would add FCM and APNs to the network list and change both stores' privacy labels.
+
+- **Record:** type `nudge`, one per sender, keyed by the sender's person ID and overwritten on each send (last writer wins like any record). Its encrypted payload is only `sent_at`. No text, no history, nothing to delete or retain. Local table `nudges` (schema 9) with a device-local `seen_sent_at`. Capability 7.
+- **Server (`20261025000000_nudges.sql`):** `nudge` is an accepted record type; a nudge may be written only by a device of the person whose ID is its key (a write for someone else's key is skipped silently, like `recovery`); at most 30 sends an hour per device, on top of the general record limit. The server sees that a record of this type was written and when (§10).
+- **Client:** a person's own device holds the send back for a minute (`tooSoon`). A received nudge with a `sent_at` that isn't a time is refused like any malformed record. The other person's latest nudge is *unseen* until they tap "Got it" (stored on that device only, so a second device of theirs shows it too until dismissed there).
+- **When it arrives:** when the partner's app syncs: on start, on resume, and shortly after local changes while it is open. **Not while the app is closed:** a background sync would need the encryption code and the secure store, which only run inside the app. A toast says it once per session, and Home keeps a card with "Thinking of you too" and "Got it".
+- **Offered only** in a shared space this device can read (`NudgeService.available`).
+- **Tests:** PGlite server tests (own key only, overwrite, rate limit); sql.js two-device tests (round trip, seen, one-minute hold, malformed time); live local Supabase suite passes with the migration. On two API 37.2 emulators: send, the one-minute hold, the toast and card on the other phone, dismissal surviving a restart, and sending back.
+- **Not covered:** iOS; a language other than English on screen (texts exist in French and Dutch); a partner who stays away for days (the card shows the latest one whenever they open the app).
