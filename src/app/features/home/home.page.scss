@@ -157,3 +157,26 @@
   font-size: var(--hm-text-sm);
   color: var(--hm-ink-muted);
 }
+
+.backup {
+  margin-top: var(--hm-space-6);
+}
+
+.backup__title {
+  margin: 0;
+  font-family: var(--hm-font-display);
+  font-size: var(--hm-text-lg);
+}
+
+.backup__body {
+  margin: var(--hm-space-2) 0 var(--hm-space-4);
+  color: var(--hm-ink-muted);
+  font-size: var(--hm-text-sm);
+  line-height: 1.55;
+}
+
+.backup__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hm-space-2);
+}

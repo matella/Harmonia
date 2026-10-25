@@ -11,6 +11,8 @@ const oneOf =
   <T extends string>(...values: T[]) =>
   (value: unknown): value is T =>
     typeof value === 'string' && (values as string[]).includes(value);
+const isInstantOrNull = (value: unknown): value is string | null =>
+  value === null || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(value) && !Number.isNaN(Date.parse(value)));
 const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
 
 const VALIDATORS: Validators = {
@@ -30,6 +32,8 @@ const VALIDATORS: Validators = {
   togetherDays: isBoolean,
   togetherReminders: isBoolean,
   memoryReminders: isBoolean,
+  lastBackupAt: isInstantOrNull,
+  backupPromptDismissedAt: isInstantOrNull,
   language: oneOf('system', 'en', 'fr', 'nl'),
   usageSharing: isBoolean,
   usagePromptAnswered: isBoolean,

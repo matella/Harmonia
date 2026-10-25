@@ -114,6 +114,17 @@
         </section>
       }
 
+      @if (store.backupDue() && !usage.showPrompt()) {
+        <section class="hm-card backup" aria-labelledby="backup-title">
+          <h2 id="backup-title" class="backup__title">{{ 'backup.title' | t }}</h2>
+          <p class="backup__body">{{ 'backup.body' | t }}</p>
+          <div class="backup__actions">
+            <button type="button" class="hm-btn" [disabled]="exporting()" (click)="exportNow()">{{ 'backup.action' | t }}</button>
+            <button type="button" class="hm-btn hm-btn--quiet" [disabled]="exporting()" (click)="notNow()">{{ 'backup.later' | t }}</button>
+          </div>
+        </section>
+      }
+
       @if (usage.showPrompt()) {
         <section class="hm-card usage-prompt" aria-labelledby="usage-prompt-title">
           <h2 id="usage-prompt-title" class="usage-prompt__title">{{ 'usage.promptTitle' | t }}</h2>

@@ -134,6 +134,7 @@ describe('RestoreRepository', () => {
     const s = await db.settings.load();
     expect(s.theme).toBe('dark');
     expect(s.appLock).toBe(false); // the phone's own choice
+    expect(s.lastBackupAt).toBe('2026-10-24T10:00:00Z'); // the restored file counts as a copy
     expect(await db.restore.isEmpty()).toBe(false);
   });
 

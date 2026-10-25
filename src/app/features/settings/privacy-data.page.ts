@@ -11,6 +11,7 @@ import { I18nService } from '../../core/services/i18n.service';
 import { NoticeService } from '../../core/services/notice.service';
 import { SettingsService } from '../../core/services/settings.service';
 import { SharingService } from '../../core/services/sharing.service';
+import { Temporal } from '../../core/domain/temporal';
 import { AppStore } from '../../core/state/app-store';
 import { I18N_PIPES } from '../../shared/pipes/i18n.pipes';
 import { ConfirmService } from '../../shared/services/confirm.service';
@@ -81,6 +82,9 @@ import { SettingsHeaderComponent } from './settings-header.component';
         <section class="hm-section" aria-labelledby="export-heading">
           <h2 id="export-heading" class="hm-section__title">{{ 'privacy.export' | t }}</h2>
           <p class="hm-section__hint">{{ 'privacy.exportHint' | t }}</p>
+          <p class="hm-section__hint" role="status">{{
+            lastExportDate() ? ('privacy.lastExport' | t: { date: (lastExportDate() | hmDate: 'medium') }) : ('privacy.neverExported' | t)
+          }}</p>
           <button type="button" class="hm-btn hm-btn--outline action" [disabled]="busy()" (click)="export()">
             @if (exporting()) {
               <ion-spinner name="crescent" />{{ 'privacy.exporting' | t }}
@@ -154,6 +158,12 @@ export class PrivacyDataPage {
         minutes === 0 ? this.t.t('lock.immediately') : this.t.plural('lock.afterMinutes', minutes),
     })),
   );
+
+  /** The day of the last export, in this phone's time zone. */
+  protected readonly lastExportDate = computed(() => {
+    const at = this.store.settings().lastBackupAt;
+    return at ? Temporal.Instant.from(at).toZonedDateTimeISO(this.store.deviceTimeZone()).toPlainDate().toString() : null;
+  });
 
   /** While sharing, the statement says what goes to the partner, end-to-end encrypted. */
   protected readonly statementKey = computed(() =>

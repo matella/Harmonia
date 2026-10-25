@@ -150,7 +150,7 @@ export class RestoreRepository {
         }
       }
 
-      for (const [key, value] of Object.entries(plan.settings)) {
+      for (const [key, value] of Object.entries({ ...plan.settings, lastBackupAt: now })) {
         if (!isValidSetting(key, value)) continue; // unknown or damaged: the default stays
         await tx.run(
           `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)

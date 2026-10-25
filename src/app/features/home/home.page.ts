@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { ActionSheetController, IonContent, IonHeader, IonIcon, IonToolbar } from '@ionic/angular';
 
@@ -7,9 +7,11 @@ import { togetherMarkComesFirst } from '../../core/domain/together-milestones';
 import { formatTogetherTitle } from '../../core/i18n/duration-format';
 import type { CounterFormat } from '../../core/domain/models';
 import { I18nService } from '../../core/services/i18n.service';
+import { DataExportService } from '../../core/services/data-export.service';
 import { NoticeService } from '../../core/services/notice.service';
 import { NudgeService } from '../../core/services/nudge.service';
 import { SettingsService } from '../../core/services/settings.service';
+import { CLOCK } from '../../core/services/tokens';
 import { SharingService } from '../../core/services/sharing.service';
 import { AppStore } from '../../core/state/app-store';
 import { CounterComponent } from '../../shared/components/counter.component';
@@ -51,6 +53,7 @@ export class HomePage {
   protected readonly store = inject(AppStore);
   protected readonly t = inject(I18nService).translator;
   private readonly settings = inject(SettingsService);
+  private readonly clock = inject(CLOCK);
   private readonly reminders = inject(ReminderService);
   private readonly router = inject(Router);
   private readonly sheets = inject(ActionSheetController);
@@ -58,6 +61,8 @@ export class HomePage {
   protected readonly nudges = inject(NudgeService);
   private readonly sharing = inject(SharingService);
   private readonly notice = inject(NoticeService);
+  private readonly exporter = inject(DataExportService);
+  protected readonly exporting = signal(false);
 
   protected readonly profile = this.store.profile;
 
@@ -142,6 +147,24 @@ export class HomePage {
       this.t.t(result === 'sent' ? 'nudge.sent' : result === 'tooSoon' ? 'nudge.tooSoon' : 'nudge.failed'),
       result === 'sent' ? 'info' : 'warning',
     );
+  }
+
+  /** The offer to keep a copy: exports now, or waits 30 days. */
+  protected async exportNow(): Promise<void> {
+    if (this.exporting()) return;
+    this.exporting.set(true);
+    try {
+      const result = await this.exporter.exportAndShare(this.t.t('privacy.exportShareTitle'));
+      if (result.shared) await this.notice.show(this.t.t('backup.done'));
+    } catch {
+      await this.notice.show(this.t.t('privacy.exportFailed'), 'warning');
+    } finally {
+      this.exporting.set(false);
+    }
+  }
+
+  protected async notNow(): Promise<void> {
+    await this.settings.update({ backupPromptDismissedAt: this.clock.now().toString() }).catch(() => undefined);
   }
 
   protected addDate(): void {

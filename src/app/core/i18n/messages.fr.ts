@@ -657,6 +657,13 @@ export const FR: EnCatalog = {
   'privacy.export': 'Exporter vos données',
   'privacy.exportHint':
     'Crée un fichier ZIP avec vos dates, souvenirs, réglages et photos, que vous pouvez enregistrer ou partager.',
+  'backup.title': 'Gardez une copie de vos souvenirs',
+  'backup.body': 'Tout se trouve uniquement sur ce téléphone. Exportez une copie et gardez-la en lieu sûr, par exemple dans votre stockage en ligne ou sur votre ordinateur.',
+  'backup.action': 'Exporter maintenant',
+  'backup.later': 'Pas maintenant',
+  'backup.done': 'Copie exportée. Gardez-la en lieu sûr.',
+  'privacy.lastExport': 'Dernier export : {date}',
+  'privacy.neverExported': 'Vous n’avez pas encore exporté.',
   'privacy.exportAction': 'Exporter',
   'privacy.exporting': 'Préparation de l’export…',
   'privacy.exportDone': 'Export prêt\u00a0: {name}',

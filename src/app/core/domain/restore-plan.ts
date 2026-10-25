@@ -25,6 +25,9 @@ export const DEVICE_ONLY_SETTINGS: readonly (keyof AppSettings)[] = [
   // On a phone without a screen lock, a restored lock could never be opened.
   'appLock',
   'appLockAfter',
+  // Set by the restore itself (the file it came from is a copy), not taken from the file.
+  'lastBackupAt',
+  'backupPromptDismissedAt',
 ];
 
 export interface RestoredMilestone {

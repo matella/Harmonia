@@ -146,6 +146,10 @@ export interface AppSettings {
   togetherReminders: boolean;
   /** A reminder on the anniversary of a memory, at most one a week; off by default. */
   memoryReminders: boolean;
+  /** When an export was last shared or saved from this phone (docs/ARCHITECTURE.md). */
+  lastBackupAt: IsoInstant | null;
+  /** When the user last chose "Not now" on the offer to export a copy. */
+  backupPromptDismissedAt: IsoInstant | null;
   language: LanguagePreference;
   /** Opt-in anonymous usage sharing; off unless the user turns it on. */
   usageSharing: boolean;
@@ -173,6 +177,8 @@ export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   togetherDays: true,
   togetherReminders: false,
   memoryReminders: false,
+  lastBackupAt: null,
+  backupPromptDismissedAt: null,
   language: 'system',
   usageSharing: false,
   usagePromptAnswered: false,

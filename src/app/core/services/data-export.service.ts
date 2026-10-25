@@ -9,6 +9,7 @@ import { MediaStorageService } from '../platform/media-storage.service';
 import { LATEST_SCHEMA_VERSION } from '../persistence/migrations';
 import { AppStore } from '../state/app-store';
 import { DatabaseService } from './database.service';
+import { SettingsService } from './settings.service';
 import { APP_VERSION, CLOCK } from './tokens';
 
 export interface ExportResult {
@@ -28,6 +29,7 @@ export class DataExportService {
   private readonly store = inject(AppStore);
   private readonly media = inject(MediaStorageService);
   private readonly clock = inject(CLOCK);
+  private readonly settings = inject(SettingsService);
 
   async buildArchive(): Promise<{ bytes: Uint8Array; document: ExportDocument; fileName: string }> {
     const { profile, milestones, memories, settings } = this.db.repos;
@@ -65,10 +67,16 @@ export class DataExportService {
     return { bytes: zipSync(files), document, fileName: `harmonia-export-${date}.zip` };
   }
 
+  /** The export went to a share target or a download: remember when (best effort). */
+  private async markBackedUp(): Promise<void> {
+    await this.settings.update({ lastBackupAt: this.clock.now().toString() }).catch(() => undefined);
+  }
+
   async exportAndShare(dialogTitle: string): Promise<ExportResult> {
     const { bytes, document, fileName } = await this.buildArchive();
     if (!Capacitor.isNativePlatform()) {
       downloadInBrowser(bytes, fileName);
+      await this.markBackedUp();
       return { fileName, document, shared: true };
     }
     // The receiving app may read the file after the share sheet closes, so the previous
@@ -82,6 +90,7 @@ export class DataExportService {
     });
     try {
       await Share.share({ title: dialogTitle, files: [written.uri], dialogTitle });
+      await this.markBackedUp();
       return { fileName, document, shared: true };
     } catch (error) {
       if (/cancel/i.test(error instanceof Error ? error.message : String(error))) {

@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 
 import { fixedClock } from '../domain/clock';
 import { todayIn } from '../domain/local-date';
+import { backupDue } from '../domain/backup-reminder';
 import { memoriesOnThisDay } from '../domain/memory-anniversaries';
 import { sortedPast, sortedUpcoming } from '../domain/milestone-occurrence';
 import {
@@ -65,6 +66,17 @@ export class AppStore {
 
   readonly upcoming = computed(() => sortedUpcoming(this.milestones(), this.today(), this.settings().leapDayPolicy));
   readonly past = computed(() => sortedPast(this.milestones(), this.today()));
+  /** Home offers to export a copy now (docs/ARCHITECTURE.md › Export and restore). */
+  readonly backupDue = computed(() => {
+    const settings = this.settings();
+    return backupDue({
+      nowMs: this.now().epochMilliseconds,
+      lastBackupAt: settings.lastBackupAt,
+      dismissedAt: settings.backupPromptDismissedAt,
+      milestones: this.milestones(),
+      memories: this.memories(),
+    });
+  });
   /** Memories from this day and month in earlier years, the oldest first. */
   readonly memoriesToday = computed(() => memoriesOnThisDay(this.memories(), this.today(), this.settings().leapDayPolicy));
   readonly nextUpcoming = computed(() => this.upcoming()[0] ?? null);
