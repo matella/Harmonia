@@ -35,6 +35,29 @@
         </p>
       </section>
 
+      @if (store.memoriesToday(); as onThisDay) {
+        @if (onThisDay.length > 0) {
+          @let lead = onThisDay[0];
+          <section class="hm-section" aria-labelledby="otd-heading">
+            <div class="hm-section__head">
+              <h2 id="otd-heading" class="hm-section__title">{{ 'home.onThisDay' | t }}</h2>
+            </div>
+            <a class="hm-card otd" [routerLink]="['/memory', lead.memory.id]">
+              @if (lead.memory.media[0]; as cover) {
+                <hm-photo-frame class="otd__photo" shape="soft" ratio="1 / 1" [path]="cover.thumbnailPath ?? cover.filePath" [alt]="''" />
+              }
+              <span class="otd__text">
+                <span class="otd__when">{{ 'memory.yearsAgoToday' | tp: lead.yearsAgo }}</span>
+                <span class="otd__title">{{ lead.memory.title ?? lead.memory.body ?? '' }}</span>
+                @if (onThisDay.length > 1) {
+                  <span class="otd__more">{{ 'home.onThisDayMore' | tp: onThisDay.length - 1 }}</span>
+                }
+              </span>
+            </a>
+          </section>
+        }
+      }
+
       @if (nudges.available()) {
         <section class="hm-card nudge" aria-label="{{ 'nudge.send' | t }}">
           @if (store.nudge().unseen) {

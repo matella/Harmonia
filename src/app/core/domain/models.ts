@@ -144,6 +144,8 @@ export interface AppSettings {
   togetherDays: boolean;
   /** Reminders for together milestones, using the default reminder time and offsets. */
   togetherReminders: boolean;
+  /** A reminder on the anniversary of a memory, at most one a week; off by default. */
+  memoryReminders: boolean;
   language: LanguagePreference;
   /** Opt-in anonymous usage sharing; off unless the user turns it on. */
   usageSharing: boolean;
@@ -170,6 +172,7 @@ export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   togetherMonths: 'key',
   togetherDays: true,
   togetherReminders: false,
+  memoryReminders: false,
   language: 'system',
   usageSharing: false,
   usagePromptAnswered: false,

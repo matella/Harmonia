@@ -1,6 +1,7 @@
 import { resolveLocalDateTime, toPlainTime, type IsoDate, type LocalTime } from './local-date';
+import { memoryReminderDays } from './memory-anniversaries';
 import { upcomingOccurrences } from './milestone-occurrence';
-import type { AppSettings, Milestone, ReminderRule } from './models';
+import type { AppSettings, Memory, Milestone, ReminderRule } from './models';
 import { Temporal } from './temporal';
 import {
   MAX_TOGETHER_DAYS,
@@ -35,9 +36,19 @@ export function togetherNotificationId(kind: TogetherMarkKind, count: number, of
   return TOGETHER_NOTIFICATION_ID_BASE + ((kind === 'months' ? 0 : 100_000) + count) * 366 + offsetDays;
 }
 
+/**
+ * Memory reminders, like together reminders, have no stored rule: the ID comes from the
+ * day they fire on (days since 1970 above this base; below 2^31 until the year 5800).
+ */
+export const MEMORY_NOTIFICATION_ID_BASE = 2_100_000_000;
+
+export function memoryNotificationId(date: Temporal.PlainDate): number {
+  return MEMORY_NOTIFICATION_ID_BASE + date.since(Temporal.PlainDate.from('1970-01-01'), { largestUnit: 'days' }).days;
+}
+
 export interface PlannedNotification {
   notificationId: number;
-  /** Stored rule ID, or `together:<kind>:<count>:<offset>` for derived reminders. */
+  /** Stored rule ID, `together:<kind>:<count>:<offset>` or `memory:<date>` for derived reminders. */
   ruleId: string;
   /** Null for together-milestone reminders. */
   milestoneId: string | null;
@@ -56,6 +67,8 @@ export interface ReminderCopy {
   body(offsetDays: number, milestoneTitle: string | null): string;
   /** mark is null when the notification must stay discreet. */
   togetherBody(offsetDays: number, mark: TogetherMark | null): string;
+  /** memoryTitle is null when the notification must stay discreet. */
+  memoryBody(yearsAgo: number, memoryTitle: string | null): string;
 }
 
 /** Reminders for derived together milestones (1, 3, 6 months…), off unless enabled. */
@@ -63,6 +76,13 @@ export interface TogetherReminderInput {
   startDate: IsoDate;
   options: TogetherOptions;
   offsets: readonly number[];
+  localTime: LocalTime;
+  revealTitle: boolean;
+}
+
+/** "On this day" reminders (docs/ARCHITECTURE.md): at most one a week, off unless enabled. */
+export interface MemoryReminderInput {
+  memories: readonly Memory[];
   localTime: LocalTime;
   revealTitle: boolean;
 }
@@ -77,6 +97,8 @@ export interface ReminderPlanInput {
   copy: ReminderCopy;
   /** Null when together reminders are off or there is no profile. */
   together?: TogetherReminderInput | null;
+  /** Null when memory reminders are off. */
+  memoryReminders?: MemoryReminderInput | null;
 }
 
 /**
@@ -118,6 +140,7 @@ export function planReminders(input: ReminderPlanInput): PlannedNotification[] {
   }
 
   if (input.together) planned.push(...planTogether(input.together, input, today));
+  if (input.memoryReminders) planned.push(...planMemories(input.memoryReminders, input, today));
 
   planned.sort(
     (a, b) => Temporal.Instant.compare(a.fireAt, b.fireAt) || a.notificationId - b.notificationId,
@@ -154,6 +177,32 @@ function planTogether(
         break;
       }
     }
+  }
+  return planned;
+}
+
+function planMemories(
+  memoryReminders: MemoryReminderInput,
+  input: ReminderPlanInput,
+  today: Temporal.PlainDate,
+): PlannedNotification[] {
+  const time = toPlainTime(memoryReminders.localTime);
+  const planned: PlannedNotification[] = [];
+  for (const { date, lead } of memoryReminderDays(memoryReminders.memories, today, input.settings.leapDayPolicy)) {
+    const fireAt = resolveLocalDateTime(date, time, input.deviceTimeZoneId).toInstant();
+    // Today's time may have passed already: that day's reminder is skipped, not moved.
+    if (Temporal.Instant.compare(fireAt, input.now) <= 0) continue;
+    planned.push({
+      notificationId: memoryNotificationId(date),
+      ruleId: `memory:${date.toString()}`,
+      milestoneId: null,
+      fireAt,
+      occurrenceDate: date.toString(),
+      offsetDays: 0,
+      title: input.copy.title(),
+      body: input.copy.memoryBody(lead.yearsAgo, memoryReminders.revealTitle ? lead.memory.title : null),
+      route: `/memory/${lead.memory.id}`,
+    });
   }
   return planned;
 }

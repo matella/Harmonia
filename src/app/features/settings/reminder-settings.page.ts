@@ -57,6 +57,13 @@ import { SettingsHeaderComponent } from './settings-header.component';
             </label>
             <ion-toggle id="r-together" [attr.aria-label]="'reminders.together' | t" [checked]="settings().togetherReminders" (ionChange)="setTogether($event.detail.checked)" />
           </div>
+          <div class="hm-switch-row">
+            <label class="hm-switch-row__text" for="r-memories">
+              {{ 'reminders.memories' | t }}
+              <span class="hm-switch-row__hint">{{ 'reminders.memoriesHint' | t }}</span>
+            </label>
+            <ion-toggle id="r-memories" [attr.aria-label]="'reminders.memories' | t" [checked]="settings().memoryReminders" (ionChange)="setMemories($event.detail.checked)" />
+          </div>
         </section>
 
         <section class="hm-section">
@@ -141,6 +148,11 @@ export class ReminderSettingsPage implements OnInit {
   }
 
   /** Asks for notification permission in context, the first time one is turned on. */
+  protected async setMemories(enabled: boolean): Promise<void> {
+    if (enabled) await this.reminders.requestIfNeeded().catch(() => undefined);
+    await this.save({ memoryReminders: enabled });
+  }
+
   protected async setTogether(enabled: boolean): Promise<void> {
     if (enabled) await this.reminders.requestIfNeeded().catch(() => undefined);
     await this.save({ togetherReminders: enabled });

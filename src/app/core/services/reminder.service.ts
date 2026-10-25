@@ -67,6 +67,13 @@ export class ReminderService {
               revealTitle: settings.notificationsRevealTitles,
             }
           : null,
+      memoryReminders: settings.memoryReminders
+        ? {
+            memories: this.store.memories(),
+            localTime: settings.defaultReminderTime,
+            revealTitle: settings.notificationsRevealTitles,
+          }
+        : null,
     });
   }
 

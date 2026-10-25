@@ -598,6 +598,13 @@ export const FR: EnCatalog = {
   'reminders.together': 'Me rappeler les étapes ensemble',
   'reminders.togetherHint':
     'Utilise votre heure et vos rappels par défaut. Le texte reste discret, sauf si les titres des dates sont affichés.',
+  'reminders.memories': 'Me rappeler des souvenirs',
+  'reminders.memoriesHint': 'Le jour anniversaire d’un souvenir, au plus une fois par semaine. Utilise votre heure par défaut. Le texte reste discret sauf si les titres sont affichés.',
+  'home.onThisDay': 'Ce jour-là',
+  'notification.memory.discreet': { one: 'Un souvenir d’il y a {count} an, jour pour jour.', other: 'Un souvenir d’il y a {count} ans, jour pour jour.' },
+  'notification.memory.named': { one: '« {title} », il y a {count} an, jour pour jour.', other: '« {title} », il y a {count} ans, jour pour jour.' },
+  'memory.yearsAgoToday': { one: 'Il y a {count} an, jour pour jour', other: 'Il y a {count} ans, jour pour jour' },
+  'home.onThisDayMore': { one: 'Et {count} autre souvenir de ce jour', other: 'Et {count} autres souvenirs de ce jour' },
   'reminders.permission': 'Notifications',
   'reminders.permission.granted': 'Autorisées pour Harmonia.',
   'reminders.permission.denied':

@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 
 import { fixedClock } from '../domain/clock';
 import { todayIn } from '../domain/local-date';
+import { memoriesOnThisDay } from '../domain/memory-anniversaries';
 import { sortedPast, sortedUpcoming } from '../domain/milestone-occurrence';
 import {
   DEFAULT_SETTINGS,
@@ -64,6 +65,8 @@ export class AppStore {
 
   readonly upcoming = computed(() => sortedUpcoming(this.milestones(), this.today(), this.settings().leapDayPolicy));
   readonly past = computed(() => sortedPast(this.milestones(), this.today()));
+  /** Memories from this day and month in earlier years, the oldest first. */
+  readonly memoriesToday = computed(() => memoriesOnThisDay(this.memories(), this.today(), this.settings().leapDayPolicy));
   readonly nextUpcoming = computed(() => this.upcoming()[0] ?? null);
 
   /** Next "together" milestones (1, 3, 6 months…, 100 days…) derived from the start date. */

@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { FakeNotificationPort } from '../../../testing/fake-notification-port';
 import { makeMilestone, makeRule, settings, translator } from '../../../testing/fixtures';
 import { createReminderCopy } from '../i18n/reminder-copy';
-import type { Milestone, ReminderRule } from './models';
+import type { Memory, Milestone, ReminderRule } from './models';
 import {
   MAX_PENDING_NOTIFICATIONS,
+  MEMORY_NOTIFICATION_ID_BASE,
+  memoryNotificationId,
   planReminders,
   TOGETHER_NOTIFICATION_ID_BASE,
   togetherNotificationId,
@@ -245,5 +247,60 @@ describe('together-milestone reminders', () => {
     expect(togetherNotificationId('days', MAX_TOGETHER_DAYS, 365)).toBeLessThan(2 ** 31);
     expect(togetherNotificationId('months', 6, 1)).not.toBe(togetherNotificationId('days', 6, 1));
     expect(() => togetherNotificationId('days', MAX_TOGETHER_DAYS + 1, 0)).toThrow(RangeError);
+  });
+});
+
+describe('memory reminders ("on this day")', () => {
+  const memory = (id: string, memoryDate: string, title: string | null = id): Memory => ({
+    id,
+    milestoneId: null,
+    title,
+    body: null,
+    memoryDate,
+    media: [],
+    createdAt: '2025-01-01T10:00:00Z',
+    updatedAt: '2025-01-01T10:00:00Z',
+  });
+  const run = (memories: Memory[], now: string, revealTitle = false, overrides = {}) =>
+    planReminders({
+      milestones: [],
+      rules: [],
+      settings: settings(overrides),
+      now: Temporal.Instant.from(now),
+      deviceTimeZoneId: 'Europe/Brussels',
+      copy,
+      memoryReminders: { memories, localTime: '09:00', revealTitle },
+    });
+
+  it('plans one reminder on the anniversary, discreet unless titles are allowed', () => {
+    const [discreet] = run([memory('lisbon', '2024-11-01', 'Lisbon')], '2026-10-25T10:00:00Z');
+    expect(discreet).toMatchObject({
+      ruleId: 'memory:2026-11-01',
+      route: '/memory/lisbon',
+      milestoneId: null,
+      occurrenceDate: '2026-11-01',
+      body: 'A memory from 2 years ago today.',
+    });
+    expect(discreet.fireAt.toString()).toBe('2026-11-01T08:00:00Z');
+    const [named] = run([memory('lisbon', '2024-11-01', 'Lisbon')], '2026-10-25T10:00:00Z', true);
+    expect(named.body).toBe('“Lisbon”, 2 years ago today.');
+    // An untitled memory stays discreet even when titles are allowed… it has no title to show.
+    expect(run([memory('x', '2025-11-01', null)], '2026-10-25T10:00:00Z', true)[0].body).toBe(
+      'A memory from 1 year ago today.',
+    );
+  });
+
+  it('skips today when its time has passed, keeps at most a weekly rhythm, and obeys the master switch', () => {
+    const memories = [memory('today', '2025-10-25'), memory('soon', '2025-10-28'), memory('later', '2025-11-05')];
+    const planned = run(memories, '2026-10-25T10:00:00Z'); // 11:00 local: today's 09:00 has passed
+    expect(planned.map((n) => n.occurrenceDate)).toEqual(['2026-11-05']); // "soon" fell inside the gap of "today"
+    expect(run(memories, '2026-10-25T10:00:00Z', false, { remindersEnabled: false })).toEqual([]);
+  });
+
+  it('derives IDs from the day, inside the 32-bit range and apart from together reminders', () => {
+    const id = memoryNotificationId(Temporal.PlainDate.from('2026-11-01'));
+    expect(id).toBeGreaterThan(MEMORY_NOTIFICATION_ID_BASE);
+    expect(id).toBeLessThan(2 ** 31);
+    expect(id).toBeGreaterThan(togetherNotificationId('days', MAX_TOGETHER_DAYS, 365));
   });
 });

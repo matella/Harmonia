@@ -594,6 +594,13 @@ export const EN = {
     'Off by default, so notifications stay discreet on a lock screen. Applies to reminders you set up from now on.',
   'reminders.together': 'Remind me of milestones together',
   'reminders.togetherHint': 'Uses your default time and reminders. Wording stays discreet unless date titles are shown.',
+  'reminders.memories': 'Remind me of memories',
+  'reminders.memoriesHint': 'On the anniversary of a memory, at most once a week. Uses your default time. Wording stays discreet unless date titles are shown.',
+  'home.onThisDay': 'On this day',
+  'notification.memory.discreet': { one: 'A memory from {count} year ago today.', other: 'A memory from {count} years ago today.' },
+  'notification.memory.named': { one: '“{title}”, {count} year ago today.', other: '“{title}”, {count} years ago today.' },
+  'memory.yearsAgoToday': { one: '{count} year ago today', other: '{count} years ago today' },
+  'home.onThisDayMore': { one: 'And {count} more memory from this day', other: 'And {count} more memories from this day' },
   'reminders.permission': 'Notifications',
   'reminders.permission.granted': 'Allowed for Harmonia.',
   'reminders.permission.denied':

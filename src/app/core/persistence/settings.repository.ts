@@ -29,6 +29,7 @@ const VALIDATORS: Validators = {
   togetherMonths: oneOf('off', 'key', 'every'),
   togetherDays: isBoolean,
   togetherReminders: isBoolean,
+  memoryReminders: isBoolean,
   language: oneOf('system', 'en', 'fr', 'nl'),
   usageSharing: isBoolean,
   usagePromptAnswered: isBoolean,

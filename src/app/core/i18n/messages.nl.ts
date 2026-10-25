@@ -598,6 +598,13 @@ export const NL: EnCatalog = {
   'reminders.together': 'Herinner me aan mijlpalen samen',
   'reminders.togetherHint':
     'Gebruikt je standaardtijd en -meldingen. De tekst blijft discreet, tenzij titels van datums worden getoond.',
+  'reminders.memories': 'Herinner me aan herinneringen',
+  'reminders.memoriesHint': 'Op de verjaardag van een herinnering, hoogstens één keer per week. Gebruikt je standaardtijd. De tekst blijft discreet tenzij titels getoond worden.',
+  'home.onThisDay': 'Op deze dag',
+  'notification.memory.discreet': { one: 'Een herinnering van {count} jaar geleden, precies vandaag.', other: 'Een herinnering van {count} jaar geleden, precies vandaag.' },
+  'notification.memory.named': { one: '“{title}”, {count} jaar geleden, precies vandaag.', other: '“{title}”, {count} jaar geleden, precies vandaag.' },
+  'memory.yearsAgoToday': { one: '{count} jaar geleden, precies vandaag', other: '{count} jaar geleden, precies vandaag' },
+  'home.onThisDayMore': { one: 'En nog {count} herinnering van deze dag', other: 'En nog {count} herinneringen van deze dag' },
   'reminders.permission': 'Toestemming voor meldingen',
   'reminders.permission.granted': 'Toegestaan voor Harmonia.',
   'reminders.permission.denied':

@@ -15,6 +15,10 @@ export function createReminderCopy(t: AppTranslator): ReminderCopy {
       if (offsetDays === 1) return t.t('notification.named.tomorrow', { title: milestoneTitle });
       return t.plural('notification.named.inDays', offsetDays, { title: milestoneTitle });
     },
+    memoryBody: (yearsAgo, memoryTitle) =>
+      memoryTitle === null
+        ? t.plural('notification.memory.discreet', yearsAgo)
+        : t.plural('notification.memory.named', yearsAgo, { title: memoryTitle }),
     togetherBody: (offsetDays, mark) => {
       if (mark === null) {
         if (offsetDays === 0) return t.t('notification.discreet.today');
