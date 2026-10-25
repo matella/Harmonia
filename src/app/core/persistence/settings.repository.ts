@@ -42,6 +42,11 @@ const VALIDATORS: Validators = {
  * missing, unknown or corrupt value falls back to its default instead of breaking the
  * app. New settings only need a default and a validator — no migration.
  */
+/** True for a known setting with a valid value. */
+export function isValidSetting(key: string, value: unknown): key is keyof AppSettings {
+  return key in VALIDATORS && VALIDATORS[key as keyof AppSettings](value);
+}
+
 export class SettingsRepository {
   constructor(
     private readonly db: SqlDriver,

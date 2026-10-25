@@ -10,7 +10,19 @@
           <p class="tagline">{{ 'onboarding.welcomeTitle' | t }}</p>
           <p class="lead">{{ 'onboarding.welcomeBody' | t }}</p>
           <div class="actions">
-            <button type="button" class="hm-btn hm-btn--block" (click)="next()">{{ 'onboarding.begin' | t }}</button>
+            <button type="button" class="hm-btn hm-btn--block" [disabled]="restoring()" (click)="next()">{{ 'onboarding.begin' | t }}</button>
+            @if (canRestore()) {
+              <button type="button" class="hm-btn hm-btn--quiet hm-btn--block" [disabled]="restoring()" (click)="restoreInput.click()">
+                {{ (restoring() ? 'restore.restoring' : 'restore.action') | t }}
+              </button>
+              <input
+                #restoreInput
+                type="file"
+                accept=".zip,application/zip"
+                hidden
+                (change)="restoreFrom(restoreInput)"
+              />
+            }
           </div>
         </section>
       }

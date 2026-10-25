@@ -39,6 +39,14 @@ describe('buildExportDocument', () => {
     expect(doc.milestones).toHaveLength(1);
     expect(doc.reminderRules).toHaveLength(1);
     expect(doc.memories[0].media.map((m) => m.archivePath)).toEqual(['media/a.jpg', 'media/b.jpg']);
+    expect(doc.mediaComplete).toBe(false); // the date's photo wasn't included
+  });
+
+  it('includes date photos (version 2)', () => {
+    const all = new Set(['media/a.jpg', 'media/b.jpg', 'media/profile.jpg', 'media/m1.jpg']);
+    const doc = buildExportDocument(source(), meta, all);
+    expect(EXPORT_SCHEMA_VERSION).toBe(2);
+    expect(doc.milestones[0].photoArchivePath).toBe('media/m1.jpg');
     expect(doc.mediaComplete).toBe(true);
   });
 

@@ -11,7 +11,8 @@ import {
 } from './models';
 
 export const EXPORT_FORMAT = 'harmonia-export';
-export const EXPORT_SCHEMA_VERSION = 1;
+/** 2 adds date photos (`photoArchivePath` on milestones); version 1 files still read. */
+export const EXPORT_SCHEMA_VERSION = 2;
 export const EXPORT_JSON_NAME = 'harmonia-export.json';
 /** Folder inside the archive that holds copies of app-private media. */
 export const EXPORT_MEDIA_DIR = 'media';
@@ -22,6 +23,11 @@ export interface ExportedMedia {
   archivePath: string | null;
   sortOrder: number;
   createdAt: IsoInstant;
+}
+
+export interface ExportedMilestone extends Omit<Milestone, 'photoPath'> {
+  /** Since version 2; absent or null without a photo. */
+  photoArchivePath?: string | null;
 }
 
 export interface ExportedMemory extends Omit<Memory, 'media'> {
@@ -36,7 +42,7 @@ export interface ExportDocument {
   databaseSchemaVersion: number;
   profile: (Omit<RelationshipProfile, 'photoPath'> & { photoArchivePath: string | null }) | null;
   settings: AppSettings;
-  milestones: Omit<Milestone, 'photoPath'>[];
+  milestones: ExportedMilestone[];
   reminderRules: ReminderRule[];
   memories: ExportedMemory[];
   /** True when every referenced media file was included in the archive. */
@@ -102,7 +108,7 @@ export function buildExportDocument(
     databaseSchemaVersion: meta.databaseSchemaVersion,
     profile,
     settings: { ...source.settings },
-    milestones: source.milestones.map(({ photoPath: _photo, ...rest }) => rest),
+    milestones: source.milestones.map(({ photoPath, ...rest }) => ({ ...rest, photoArchivePath: mapPath(photoPath) })),
     reminderRules: [...source.reminderRules],
     memories,
     mediaComplete,

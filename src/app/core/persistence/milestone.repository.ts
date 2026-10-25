@@ -288,7 +288,7 @@ export class MilestoneRepository {
 }
 
 /** Monotonic 32-bit notification IDs, persisted so deleted IDs are never reissued. */
-async function nextNotificationId(tx: SqlExecutor): Promise<number> {
+export async function nextNotificationId(tx: SqlExecutor): Promise<number> {
   const rows = await tx.query<{ value: number }>("SELECT value FROM id_sequences WHERE name = 'notification'");
   const next = rows[0] ? rows[0].value + 1 : FIRST_NOTIFICATION_ID;
   // IDs from TOGETHER_NOTIFICATION_ID_BASE on are reserved for derived reminders.

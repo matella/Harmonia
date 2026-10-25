@@ -9,6 +9,7 @@ import { MemoryRepository } from '../persistence/memory.repository';
 import { MilestoneRepository } from '../persistence/milestone.repository';
 import { migrate, type MigrationResult } from '../persistence/migrations';
 import { RelationshipRepository } from '../persistence/relationship.repository';
+import { RestoreRepository } from '../persistence/restore.repository';
 import { SettingsRepository } from '../persistence/settings.repository';
 import type { SqlDriver } from '../persistence/sql-driver';
 import { SqlJsDriver } from '../persistence/sqljs-driver';
@@ -26,6 +27,8 @@ export interface Repositories {
   settings: SettingsRepository;
   trash: TrashRepository;
   data: DataRepository;
+  /** Restoring an export into an empty app. */
+  restore: RestoreRepository;
   /** Partner sharing's local side (outbox, applying received records). */
   sync: SyncStore;
 }
@@ -57,6 +60,7 @@ export class DatabaseService {
       settings: new SettingsRepository(driver, this.clock),
       trash: new TrashRepository(driver, this.clock, journal),
       data: new DataRepository(driver),
+      restore: new RestoreRepository(driver, this.clock, newId, journal),
       sync: new SyncStore(driver, this.clock, journal),
     };
   }

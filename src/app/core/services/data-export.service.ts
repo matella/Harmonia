@@ -43,6 +43,7 @@ export class DataExportService {
     const included = new Set<string>();
     const wanted = [
       ...(p?.photoPath ? [p.photoPath] : []),
+      ...m.flatMap((milestone) => (milestone.photoPath ? [milestone.photoPath] : [])),
       ...mem.flatMap((memory) => memory.media.map((media) => media.filePath)),
     ];
     for (const path of wanted) {

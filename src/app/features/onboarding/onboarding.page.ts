@@ -9,6 +9,7 @@ import { I18nService } from '../../core/services/i18n.service';
 import { MilestoneService } from '../../core/services/milestone.service';
 import { NoticeService } from '../../core/services/notice.service';
 import { ProfileService } from '../../core/services/profile.service';
+import { DataRestoreService, RestoreError } from '../../core/services/data-restore.service';
 import { CLOCK } from '../../core/services/tokens';
 import { UsageService } from '../../core/services/usage.service';
 import { AppStore } from '../../core/state/app-store';
@@ -44,6 +45,7 @@ export class OnboardingPage implements OnDestroy {
   private readonly notice = inject(NoticeService);
   private readonly router = inject(Router);
   private readonly usage = inject(UsageService);
+  private readonly restorer = inject(DataRestoreService);
 
   protected readonly step = signal<Step>('welcome');
   protected readonly stepNumber = computed(() => STEPS.indexOf(this.step()));
@@ -59,6 +61,17 @@ export class OnboardingPage implements OnDestroy {
   protected readonly attempted = signal(false);
 
   protected readonly today = computed(() => this.store.today().toString());
+
+  /** Restore from an export: only into an empty app that isn't sharing (docs/ARCHITECTURE.md). */
+  protected readonly canRestore = signal(false);
+  protected readonly restoring = signal(false);
+
+  constructor() {
+    void this.restorer
+      .canRestore()
+      .then((can) => this.canRestore.set(can))
+      .catch(() => undefined);
+  }
 
   private readonly profileResult = computed(() =>
     validateProfile(
@@ -91,6 +104,32 @@ export class OnboardingPage implements OnDestroy {
 
   ngOnDestroy(): void {
     this.photo.clear();
+  }
+
+  protected async restoreFrom(input: HTMLInputElement): Promise<void> {
+    const file = input.files?.[0];
+    input.value = ''; // the same file can be chosen again after a failure
+    if (!file || this.restoring()) return;
+    this.restoring.set(true);
+    const languageBefore = this.store.settings().language;
+    try {
+      const report = await this.restorer.restore(file);
+      if (report.language !== languageBefore) {
+        // The language applies at startup (I18nService), so the app starts again in it.
+        location.replace('/tabs/home');
+        return;
+      }
+      await this.router.navigateByUrl('/tabs/home', { replaceUrl: true });
+      await this.notice.show(
+        report.photosMissing > 0 ? this.t.plural('restore.donePhotosMissing', report.photosMissing) : this.t.t('restore.done'),
+        report.photosMissing > 0 ? 'warning' : 'info',
+      );
+    } catch (error) {
+      const reason = error instanceof RestoreError ? error.reason : 'failed';
+      await this.notice.show(this.t.t(`restore.error.${reason}`), 'warning');
+    } finally {
+      this.restoring.set(false);
+    }
   }
 
   protected next(): void {
