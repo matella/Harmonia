@@ -80,7 +80,7 @@ See `docs/WIDGET_SNAPSHOT.md` for the contract.
 | Own `SqlDriver` + sql.js for web/tests | Repositories and migrations are tested with real SQL in Node; avoids the jeep-sqlite web stack. |
 | Key/value `app_settings` | New settings need only a default and validator — no migration. |
 | Anchor-based month arithmetic | Avoids "N years, 12 months" for clamped starts while matching the spec's years→months→days order otherwise (see DATE_AND_TIME_RULES.md). |
-| RemoteViews instead of Glance on Android | Fewer Compose/Gradle dependencies in the Capacitor app module; full support from the app's minimum (API 26, Android 8, since the invite QR scanner; it was 24 before). |
+| RemoteViews instead of Glance on Android | Fewer Compose/Gradle dependencies in the Capacitor app module; full support from the app's minimum (API 26, Android 8, since the invite QR scanner; accepted by the product owner 2026-10-25; it was 24 before). |
 | Snapshot includes upcoming dates ~13 months ahead | Widgets roll over to the next date without the app running. |
 | Photos re-encoded on import | Orientation baked in, EXIF/GPS metadata stripped, size bounded; thumbnails for lists. |
 | Capacitor `loggingBehavior: 'none'` | The native bridge otherwise logs plugin results (SQL rows, notification text) in debug builds. |
